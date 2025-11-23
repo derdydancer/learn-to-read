@@ -20,5 +20,12 @@ export default defineConfig(({ mode }) => {
         }
       },
       base: '/learn-to-read/', // GitHub Pages repository name
+      build: {
+        rollupOptions: {
+          input: {
+            main: path.resolve(__dirname, 'index.html'),
+          },
+        },
+      },
     };
 });
