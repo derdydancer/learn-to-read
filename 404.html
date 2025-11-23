@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Läsresan - Page Not Found</title>
+    <script type="text/javascript">
+      // GitHub Pages 404 redirect for client-side routing
+      var segmentCount = 0;
+      var l = window.location;
+      l.replace(
+        l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+        '/learn-to-read/' +
+        l.pathname.split('/').slice(1).join('/').substr(segmentCount) +
+        (l.search ? '&' + l.search : '') +
+        l.hash
+      );
+    </script>
+  </head>
+  <body>
+    <h1>Redirecting...</h1>
+  </body>
+</html>
