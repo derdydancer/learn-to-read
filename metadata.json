@@ -1,0 +1,7 @@
+{
+  "name": "Läsresan",
+  "description": "An interactive Swedish reading companion for children. Uses phonics rules to teach pronunciation by highlighting letter relationships (like hard/soft vowels) and generating content via AI.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
