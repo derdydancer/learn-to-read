@@ -7,6 +7,7 @@ import { saveRecording, getRecording, deleteRecording } from './utils/audioStora
 import { playBlob, playWordSequence } from './utils/audioPlayer';
 import WordViewer from './components/WordViewer';
 import SoundTest from './components/SoundTest';
+import ApiKeyInput from './components/ApiKeyInput';
 
 // Hardcoded initial words with GROUPED letters for special sounds
 const INITIAL_WORDS: AnalyzedWord[] = [
@@ -374,20 +375,23 @@ const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
   const [mode, setMode] = useState<'words' | 'sentences'>('words');
   const [apiKeyMissing, setApiKeyMissing] = useState(false);
+  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
   const [view, setView] = useState<'app' | 'test'>('app');
-  const [sidebarOpen, setSidebarOpen] = useState(false); 
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [expertMode, setExpertMode] = useState(false);
 
   useEffect(() => {
-    if (!process.env.API_KEY) {
+    const hasApiKey = localStorage.getItem('gemini_api_key') || process.env.API_KEY;
+    if (!hasApiKey) {
       setApiKeyMissing(true);
     }
   }, []);
 
   const handleGenerate = useCallback(async () => {
-    if (apiKeyMissing) {
-        alert("API Key missing. Using standard word list.");
-        return;
+    const hasApiKey = localStorage.getItem('gemini_api_key') || process.env.API_KEY;
+    if (!hasApiKey) {
+      setShowApiKeyInput(true);
+      return;
     }
     setAppState(AppState.LOADING);
     try {
@@ -400,9 +404,17 @@ const App: React.FC = () => {
       setAppState(AppState.PLAYING);
     } catch (e) {
       console.error(e);
+      if (e.message.includes('No API key found')) {
+        setShowApiKeyInput(true);
+      }
       setAppState(AppState.ERROR);
     }
-  }, [mode, apiKeyMissing, allWords]);
+  }, [mode, allWords]);
+
+  const handleApiKeySet = (apiKey: string) => {
+    setApiKeyMissing(false);
+    // Optionally trigger generation after setting API key
+  };
 
   const handleWordComplete = () => {
       setCompletedWordIds(prev => new Set(prev).add(currentWordId));
@@ -458,11 +470,18 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-soft-blue flex flex-col font-sans h-screen overflow-hidden">
       
       {expertMode && (
-          <ExpertEditor 
-            words={allWords} 
-            onSave={(newWords) => setAllWords(newWords)} 
-            onClose={() => setExpertMode(false)} 
+          <ExpertEditor
+            words={allWords}
+            onSave={(newWords) => setAllWords(newWords)}
+            onClose={() => setExpertMode(false)}
           />
+      )}
+
+      {showApiKeyInput && (
+        <ApiKeyInput
+          onApiKeySet={handleApiKeySet}
+          onClose={() => setShowApiKeyInput(false)}
+        />
       )}
 
       {/* Hidden Import Input */}
@@ -488,7 +507,14 @@ const App: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-2 md:gap-4">
-           <button 
+           <button
+              onClick={() => setShowApiKeyInput(true)}
+              className="text-sm font-medium text-slate-500 hover:text-blue-600 px-3 py-1 bg-slate-50 hover:bg-blue-50 rounded-lg transition-colors border border-slate-200 flex items-center gap-2"
+           >
+              🔑 API Key
+           </button>
+
+           <button
               onClick={() => setView('test')}
               className="text-sm font-medium text-slate-500 hover:text-blue-600 px-3 py-1 bg-slate-50 hover:bg-blue-50 rounded-lg transition-colors border border-slate-200"
            >
