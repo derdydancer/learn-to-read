@@ -11,7 +11,6 @@ import WordViewer from './components/WordViewer';
 import SoundTest from './components/SoundTest';
 import { Avatar } from './components/Avatar';
 
-// ... Helper to trim ...
 const trimAudioBuffer = (buffer: AudioBuffer, ctx: AudioContext): AudioBuffer => {
   const channelData = buffer.getChannelData(0);
   const threshold = 0.02; 
@@ -33,7 +32,6 @@ const trimAudioBuffer = (buffer: AudioBuffer, ctx: AudioContext): AudioBuffer =>
   return newBuffer;
 };
 
-// Initial Words
 const INITIAL_WORDS: AnalyzedWord[] = [
     {
         id: 'init-1',
@@ -137,10 +135,8 @@ const ExpertEditor: React.FC<{ words: AnalyzedWord[]; onSave: (words: AnalyzedWo
 
     const toggleRecording = async () => {
         if (isRecording) {
-            // STOP
             if (mediaRecorderRef.current) mediaRecorderRef.current.stop();
         } else {
-            // START
             if (!currentWord) return;
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -151,8 +147,6 @@ const ExpertEditor: React.FC<{ words: AnalyzedWord[]; onSave: (words: AnalyzedWo
                 };
                 mediaRecorderRef.current.onstop = async () => {
                     const rawBlob = new Blob(chunksRef.current, { type: 'audio/webm' }); 
-                    
-                    // TRIM
                     const ctx = getAudioContext();
                     const ab = await rawBlob.arrayBuffer();
                     const audioBuffer = await ctx.decodeAudioData(ab);
@@ -267,14 +261,12 @@ const ExpertEditor: React.FC<{ words: AnalyzedWord[]; onSave: (words: AnalyzedWo
 
 const PasscodeModal: React.FC<{ onClose: () => void; onUnlock: () => void }> = ({ onClose, onUnlock }) => {
     const [code, setCode] = useState('');
-    
     useEffect(() => {
         if (code === '9999') {
             onUnlock();
             onClose();
         }
     }, [code, onUnlock, onClose]);
-
     return (
         <div className="fixed inset-0 bg-black/80 z-[200] flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl p-6 w-full max-w-xs shadow-xl flex flex-col gap-4 text-center">
@@ -298,44 +290,27 @@ const App: React.FC = () => {
   const [allWords, setAllWords] = useState<AnalyzedWord[]>(INITIAL_WORDS);
   const [currentWordId, setCurrentWordId] = useState<string>(INITIAL_WORDS[0].id);
   const [completedWordIds, setCompletedWordIds] = useState<Set<string>>(new Set());
-  
   const [sessionMode, setSessionMode] = useState<'explore' | 'training'>('explore');
   const [trainingQueue, setTrainingQueue] = useState<AnalyzedWord[]>([]);
   const [trainingIndex, setTrainingIndex] = useState(0);
-
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
   const [mode, setMode] = useState<'words' | 'sentences'>('words');
   const [apiKeyMissing, setApiKeyMissing] = useState(false);
   const [view, setView] = useState<'app' | 'test'>('app');
   const [sidebarOpen, setSidebarOpen] = useState(false); 
   const [expertMode, setExpertMode] = useState(false);
-  
-  // Settings & Security
   const [settingsUnlocked, setSettingsUnlocked] = useState(false);
   const [passcodeModalOpen, setPasscodeModalOpen] = useState(false);
-
-  // Quick add input
   const [quickAddText, setQuickAddText] = useState('');
-
-  // Suggestions logic
   const [nextSuggestions, setNextSuggestions] = useState<AnalyzedWord[]>([]);
   const [suggestionHighlightIndex, setSuggestionHighlightIndex] = useState(0);
   const mainScrollRef = useRef<HTMLDivElement>(null);
-
-  // Avatar State
   const [globalAvatarTalking, setGlobalAvatarTalking] = useState(false);
-
-  // Viseme Config
   const [visemeConfig, setVisemeConfig] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    if (!process.env.API_KEY) {
-      setApiKeyMissing(true);
-    }
-
-    // Load Visemes
+    if (!process.env.API_KEY) setApiKeyMissing(true);
     const loadedConfig = getVisemeConfig();
-    // Populate defaults if missing
     const newConfig = { ...loadedConfig };
     let changed = false;
     ALL_SOUNDS.forEach(sound => {
@@ -344,23 +319,16 @@ const App: React.FC = () => {
             changed = true;
         }
     });
-    if (changed) {
-        saveVisemeConfig(newConfig);
-    }
+    if (changed) saveVisemeConfig(newConfig);
     setVisemeConfig(newConfig);
-
-    // GLOBAL AUDIO UNLOCK
     const unlockAudio = () => {
         const ctx = getAudioContext();
-        if (ctx.state === 'suspended') {
-            ctx.resume().catch(e => console.error("Auto-resume failed", e));
-        }
+        if (ctx.state === 'suspended') ctx.resume().catch(e => console.error("Auto-resume failed", e));
     };
     window.addEventListener('click', unlockAudio);
     return () => window.removeEventListener('click', unlockAudio);
   }, []);
 
-  // Suggestions loop animation
   useEffect(() => {
     if (nextSuggestions.length > 0) {
         const interval = setInterval(() => {
@@ -394,29 +362,21 @@ const App: React.FC = () => {
           const endTime = await playBlob(blob);
           const ctx = getAudioContext();
           waitTime = Math.max(0, (endTime - ctx.currentTime) * 1000);
-          
           setTimeout(() => setGlobalAvatarTalking(false), waitTime);
       }
-
       const neverPracticed = allWords.filter(w => !w.lastPracticed);
-      const oldPracticed = allWords
-          .filter(w => w.lastPracticed)
-          .sort((a, b) => (a.lastPracticed || 0) - (b.lastPracticed || 0));
-
+      const oldPracticed = allWords.filter(w => w.lastPracticed).sort((a, b) => (a.lastPracticed || 0) - (b.lastPracticed || 0));
       const queue = [...neverPracticed];
       if (queue.length < 5) {
           const needed = 5 - queue.length;
           queue.push(...oldPracticed.slice(0, needed));
       }
-      
       const finalQueue = queue.slice(0, 5);
-      
       if (finalQueue.length === 0) {
           alert("Inga ord finns att träna på.");
           setGlobalAvatarTalking(false);
           return;
       }
-
       setTimeout(() => {
           setTrainingQueue(finalQueue);
           setTrainingIndex(0);
@@ -448,35 +408,28 @@ const App: React.FC = () => {
   const handleWordComplete = async () => {
       setCompletedWordIds(prev => new Set(prev).add(currentWordId));
       setAllWords(prev => prev.map(w => w.id === currentWordId ? { ...w, lastPracticed: Date.now() } : w));
-      
-      // Auto-exit training mode if it was the last word
-      if (sessionMode === 'training' && trainingIndex === trainingQueue.length - 1) {
-          setSessionMode('explore');
-          setTrainingQueue([]);
-      }
   };
 
   const handleFeedbackDone = async () => {
-      // Allow suggestions if in explore mode OR if it's the last word of a training session (which will be explore mode by now)
-      // Since we switch mode in handleWordComplete, sessionMode will likely be 'explore' here
+      // Check if this was the last word in training
+      if (sessionMode === 'training' && trainingIndex === trainingQueue.length - 1) {
+          setSessionMode('explore');
+          setTrainingQueue([]);
+          // Since we just finished training, we automatically show the suggestions for more fun
+      }
+
       if (sessionMode === 'explore') {
-          // Pick 3 random words that are NOT the current one
           const available = allWords.filter(w => w.id !== currentWordId);
-          // Simple shuffle
           const shuffled = [...available].sort(() => 0.5 - Math.random());
           const suggestions = shuffled.slice(0, 3);
-          
           if (suggestions.length > 0) {
               setNextSuggestions(suggestions);
-              // Play instruction "Pick a word"
               const blob = await getRecording('inst_choose_next');
               if (blob) {
                   setGlobalAvatarTalking(true);
                   const end = await playBlob(blob);
                   setTimeout(() => setGlobalAvatarTalking(false), (end - getAudioContext().currentTime) * 1000);
               }
-              
-              // Scroll to bottom
               setTimeout(() => {
                   if (mainScrollRef.current) {
                       mainScrollRef.current.scrollTo({
@@ -503,15 +456,10 @@ const App: React.FC = () => {
   const handleSuggestionClick = (wordId: string) => {
       setNextSuggestions([]);
       setCurrentWordId(wordId);
-      // Reset mode to explore if we clicked a suggestion
       setSessionMode('explore');
       setTrainingQueue([]);
-      
-      // Scroll back up
       setTimeout(() => {
-          if (mainScrollRef.current) {
-               mainScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
-          }
+          if (mainScrollRef.current) mainScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
       }, 50);
   }
 
@@ -538,16 +486,11 @@ const App: React.FC = () => {
           try {
               const content = ev.target?.result as string;
               const importedWords = await importFullBackup(content);
-              
-              // Also reload viseme config in case it was in backup
               const newVisemeConfig = getVisemeConfig();
               setVisemeConfig(newVisemeConfig);
-
               setAllWords(prev => {
                   const combinedMap = new Map(prev.map(w => [w.id, w]));
-                  importedWords.forEach(w => {
-                      combinedMap.set(w.id, w);
-                  });
+                  importedWords.forEach(w => { combinedMap.set(w.id, w); });
                   return Array.from(combinedMap.values());
               });
               alert(`Backup återställd! ${importedWords.length} ord laddade.`);
@@ -559,30 +502,17 @@ const App: React.FC = () => {
 
   const currentWordData = allWords.find(w => w.id === currentWordId);
   const sortedWords = [...allWords].sort((a, b) => a.text.localeCompare(b.text, 'sv'));
-
   const currentInstructionId = sessionMode === 'training' 
       ? (trainingIndex + 1 === 5 ? 'inst_prog_final' : `inst_prog_${trainingIndex + 1}`)
       : undefined;
 
-  if (view === 'test') { return <SoundTest onClose={() => setView('app')} visemeConfig={visemeConfig} onSaveVisemeConfig={handleSaveVisemeConfig} />; }
+  if (view === 'test') return <SoundTest onClose={() => setView('app')} visemeConfig={visemeConfig} onSaveVisemeConfig={handleSaveVisemeConfig} />;
 
   return (
     <div className="min-h-screen bg-soft-blue flex flex-col font-sans h-screen overflow-hidden">
-      
-      {passcodeModalOpen && (
-          <PasscodeModal onClose={() => setPasscodeModalOpen(false)} onUnlock={() => setSettingsUnlocked(true)} />
-      )}
-
-      {expertMode && (
-          <ExpertEditor 
-            words={allWords} 
-            onSave={(newWords) => setAllWords(newWords)} 
-            onClose={() => setExpertMode(false)} 
-          />
-      )}
-
+      {passcodeModalOpen && <PasscodeModal onClose={() => setPasscodeModalOpen(false)} onUnlock={() => setSettingsUnlocked(true)} />}
+      {expertMode && <ExpertEditor words={allWords} onSave={(newWords) => setAllWords(newWords)} onClose={() => setExpertMode(false)} />}
       <input type="file" id="import-words" className="hidden" accept=".json" onChange={importWords} />
-
       <header className="w-full p-2 bg-white/90 backdrop-blur-sm border-b border-blue-100 flex justify-between items-center z-50 shadow-sm flex-shrink-0 transition-all">
         <div className="flex items-center gap-2">
           {settingsUnlocked && (
@@ -592,131 +522,57 @@ const App: React.FC = () => {
           )}
           <h1 className="text-lg md:text-xl font-bold text-slate-700 tracking-tight ml-2">Läsresan</h1>
         </div>
-        
         {settingsUnlocked ? (
             <div className="flex items-center gap-2">
                <button onClick={() => setView('test')} className="text-sm font-medium text-slate-500 bg-slate-50 border px-3 py-1.5 rounded-lg">🛠️ Ljud</button>
                <button onClick={() => document.getElementById('import-words')?.click()} className="text-sm font-medium text-slate-500 bg-slate-50 border px-3 py-1.5 rounded-lg">📥</button>
                <button onClick={exportWords} className="text-sm font-medium text-slate-500 bg-slate-50 border px-3 py-1.5 rounded-lg">📤</button>
                <button onClick={() => setExpertMode(true)} className="text-sm font-medium text-blue-600 bg-blue-50 border border-blue-100 px-3 py-1.5 rounded-lg font-bold">⚙️</button>
-               <button onClick={() => setSettingsUnlocked(false)} className="bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1 hover:bg-slate-300">
-                  <span>Göm</span>
-               </button>
+               <button onClick={() => setSettingsUnlocked(false)} className="bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1 hover:bg-slate-300"><span>Göm</span></button>
             </div>
         ) : (
-            <button onClick={() => setPasscodeModalOpen(true)} className="text-slate-300 hover:text-slate-400 p-2">
-                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" /></svg>
-            </button>
+            <button onClick={() => setPasscodeModalOpen(true)} className="text-slate-300 hover:text-slate-400 p-2"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" /></svg></button>
         )}
       </header>
-
       <div className="flex flex-1 overflow-hidden relative">
-          
-          {/* Main Layout: Sidebar only visible if unlocked and open */}
           {settingsUnlocked && (
               <aside className={`absolute md:relative z-40 h-full w-64 bg-white border-r border-slate-200 shadow-xl md:shadow-none transition-transform duration-300 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} flex flex-col`}>
-                 <div className="p-3 bg-slate-50 border-b flex justify-between items-center">
-                     <h2 className="font-bold text-slate-500 uppercase text-xs tracking-wider">Mina Ord</h2>
-                     <button onClick={() => setSidebarOpen(false)} className="md:hidden">✕</button>
-                 </div>
-                 
-                 {/* Quick Add Word */}
-                 <div className="p-2 border-b bg-slate-50/50">
-                     <div className="flex gap-1">
-                         <input 
-                            className="flex-1 border rounded px-2 py-1 text-sm" 
-                            placeholder="Lägg till ord..."
-                            value={quickAddText}
-                            onChange={(e) => setQuickAddText(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleQuickAdd()}
-                         />
-                         <button onClick={handleQuickAdd} className="bg-blue-500 text-white px-2 rounded font-bold hover:bg-blue-600">+</button>
-                     </div>
-                 </div>
-
+                 <div className="p-3 bg-slate-50 border-b flex justify-between items-center"><h2 className="font-bold text-slate-500 uppercase text-xs tracking-wider">Mina Ord</h2><button onClick={() => setSidebarOpen(false)} className="md:hidden">✕</button></div>
+                 <div className="p-2 border-b bg-slate-50/50"><div className="flex gap-1"><input className="flex-1 border rounded px-2 py-1 text-sm" placeholder="Lägg till ord..." value={quickAddText} onChange={(e) => setQuickAddText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleQuickAdd()} /><button onClick={handleQuickAdd} className="bg-blue-500 text-white px-2 rounded font-bold hover:bg-blue-600">+</button></div></div>
                  <div className="overflow-y-auto flex-1 p-2 space-y-1">
                      {sortedWords.map(word => {
                          const isCompleted = completedWordIds.has(word.id) || !!word.lastPracticed;
                          return (
-                             <button 
-                                key={word.id}
-                                onClick={() => { setCurrentWordId(word.id); setSessionMode('explore'); setNextSuggestions([]); setSidebarOpen(false); }}
-                                className={`w-full text-left px-3 py-2 rounded-lg flex items-center justify-between transition-colors ${word.id === currentWordId ? 'bg-blue-50 ring-1 ring-blue-200' : 'hover:bg-slate-50'}`}
-                             >
-                                 <span className={`font-medium text-sm truncate ${isCompleted ? 'text-green-700' : 'text-slate-600'}`}>{word.text}</span>
-                                 {isCompleted && <span className="text-green-500 text-xs">✓</span>}
-                             </button>
+                             <button key={word.id} onClick={() => { setCurrentWordId(word.id); setSessionMode('explore'); setNextSuggestions([]); setSidebarOpen(false); }} className={`w-full text-left px-3 py-2 rounded-lg flex items-center justify-between transition-colors ${word.id === currentWordId ? 'bg-blue-50 ring-1 ring-blue-200' : 'hover:bg-slate-50'}`}><span className={`font-medium text-sm truncate ${isCompleted ? 'text-green-700' : 'text-slate-600'}`}>{word.text}</span>{isCompleted && <span className="text-green-500 text-xs">✓</span>}</button>
                          )
                      })}
                  </div>
-                 <div className="p-3 bg-white border-t">
-                     <button onClick={handleGenerate} disabled={appState === AppState.LOADING} className="w-full bg-blue-500 text-white py-2 rounded-lg font-bold text-sm shadow">
-                         {appState === AppState.LOADING ? '...' : '✨ Nya ord (AI)'}
-                     </button>
-                 </div>
+                 <div className="p-3 bg-white border-t"><button onClick={handleGenerate} disabled={appState === AppState.LOADING} className="w-full bg-blue-500 text-white py-2 rounded-lg font-bold text-sm shadow">{appState === AppState.LOADING ? '...' : '✨ Nya ord (AI)'}</button></div>
               </aside>
           )}
-
           <main ref={mainScrollRef} className="flex-1 flex flex-col items-center p-2 md:p-4 bg-soft-blue w-full relative overflow-y-auto">
-            
-            {/* Start Training Button - Top Middle */}
             {sessionMode !== 'training' && (
-               <div className="w-full flex justify-center mb-4 mt-2">
-                   <button 
-                       onClick={startTraining} 
-                       className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-full font-bold text-lg shadow-lg flex items-center gap-2 transform hover:scale-105 transition-all"
-                   >
-                      🚀 Starta Träning
-                   </button>
-               </div>
+               <div className="w-full flex justify-center mb-4 mt-2"><button onClick={startTraining} className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-full font-bold text-lg shadow-lg flex items-center gap-2 transform hover:scale-105 transition-all">🚀 Starta Träning</button></div>
             )}
-
             <div className="w-full max-w-4xl z-10 flex flex-col items-center flex-1 justify-start">
                 {currentWordData ? (
                     <div className="w-full flex flex-col items-center pb-20">
                         {sessionMode === 'training' && (
                             <div className="w-full max-w-md mb-2 px-4">
-                                <div className="flex justify-between text-xs text-slate-500 font-bold mb-1 uppercase tracking-wider">
-                                    <span>Träning</span>
-                                    <span>{trainingIndex + 1} / {trainingQueue.length}</span>
-                                </div>
-                                <div className="h-3 bg-white rounded-full overflow-hidden shadow-inner border border-blue-100">
-                                    <div className="h-full bg-green-500 transition-all duration-500" style={{ width: `${((trainingIndex + 0.5) / trainingQueue.length) * 100}%` }}></div>
-                                </div>
+                                <div className="flex justify-between text-xs text-slate-500 font-bold mb-1 uppercase tracking-wider"><span>Träning</span><span>{trainingIndex + 1} / {trainingQueue.length}</span></div>
+                                <div className="h-3 bg-white rounded-full overflow-hidden shadow-inner border border-blue-100"><div className="h-full bg-green-500 transition-all duration-500" style={{ width: `${((trainingIndex + 0.5) / trainingQueue.length) * 100}%` }}></div></div>
                             </div>
                         )}
-                        
-                        <WordViewer 
-                            key={currentWordId} 
-                            wordData={currentWordData} 
-                            onComplete={handleWordComplete}
-                            onFeedbackDone={handleFeedbackDone}
-                            onNext={sessionMode === 'training' ? handleNextTrainingWord : undefined}
-                            completionInstructionId={currentInstructionId}
-                            visemeConfig={visemeConfig}
-                            globalAvatarTalking={globalAvatarTalking}
-                        />
-
-                        {/* Suggestions after completion in Explore Mode OR Last Training Word */}
+                        <WordViewer key={currentWordId} wordData={currentWordData} onComplete={handleWordComplete} onFeedbackDone={handleFeedbackDone} onNext={sessionMode === 'training' && trainingIndex < trainingQueue.length - 1 ? handleNextTrainingWord : undefined} completionInstructionId={currentInstructionId} visemeConfig={visemeConfig} globalAvatarTalking={globalAvatarTalking} />
                         {nextSuggestions.length > 0 && (
                             <div className="mt-8 w-full max-w-2xl animate-fade-in-up pb-10">
-                                <div className="text-center mb-6">
-                                    <h3 className="text-xl font-bold text-slate-600">Välj ett nytt ord:</h3>
-                                </div>
+                                <div className="text-center mb-6"><h3 className="text-xl font-bold text-slate-600">Välj ett nytt ord:</h3></div>
                                 <div className="grid grid-cols-3 gap-4">
                                     {nextSuggestions.map((word, idx) => {
                                         const isHighlighted = idx === suggestionHighlightIndex;
                                         return (
-                                            <button 
-                                                key={word.id}
-                                                onClick={() => handleSuggestionClick(word.id)}
-                                                className={`relative bg-white rounded-xl shadow-md border-2 p-4 flex flex-col items-center justify-center transition-all duration-300 h-32 md:h-40 ${isHighlighted ? 'scale-110 border-blue-400 ring-4 ring-blue-100 z-10' : 'border-slate-100 hover:border-blue-200'}`}
-                                            >
-                                                {isHighlighted && (
-                                                    <div className="absolute -top-12 left-1/2 -translate-x-[90%] text-4xl animate-bounce filter drop-shadow-sm w-12 text-center pointer-events-none z-50">
-                                                        👇
-                                                    </div>
-                                                )}
+                                            <button key={word.id} onClick={() => handleSuggestionClick(word.id)} className={`relative bg-white rounded-xl shadow-md border-2 p-4 flex flex-col items-center justify-center transition-all duration-300 h-32 md:h-40 ${isHighlighted ? 'scale-110 border-blue-400 ring-4 ring-blue-100 z-10' : 'border-slate-100 hover:border-blue-200'}`}>
+                                                {isHighlighted && (<div className="absolute -top-12 left-1/2 -translate-x-[150%] text-4xl animate-bounce filter drop-shadow-sm w-12 text-center pointer-events-none z-50">👇</div>)}
                                                 <div className="text-4xl md:text-5xl mb-2 opacity-50">❓</div>
                                                 <div className="font-bold text-lg md:text-xl text-slate-700 capitalize">{word.text}</div>
                                             </button>
@@ -726,9 +582,7 @@ const App: React.FC = () => {
                             </div>
                         )}
                     </div>
-                ) : (
-                    <div className="text-center text-slate-400 mt-10">Inga ord.</div>
-                )}
+                ) : (<div className="text-center text-slate-400 mt-10">Inga ord.</div>)}
             </div>
           </main>
       </div>

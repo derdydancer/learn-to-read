@@ -1,0 +1,21 @@
+<?xml version='1.0' encoding='utf-8'?>
+<widget id="com.lasresan.app" version="1.0.0" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
+    <name>Läsresan</name>
+    <description>
+        En interaktiv svensk läsresa för barn.
+    </description>
+    <author email="support@lasresan.se" href="https://lasresan.se">
+        Läsresan Team
+    </author>
+    <content src="index.html" />
+    <access origin="*" />
+    <allow-intent href="http://*/*" />
+    <allow-intent href="https://*/*" />
+    <preference name="Orientation" value="portrait" />
+    <preference name="Fullscreen" value="true" />
+    <preference name="BackgroundColor" value="0xffE0F7FA" />
+    <platform name="android">
+        <allow-intent href="market:*" />
+        <preference name="StatusBarBackgroundColor" value="#E0F7FA" />
+    </platform>
+</widget>
