@@ -1,54 +1,119 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { AnalyzedWord, LetterData } from '../types';
-import { playSound, playWordSequence, getAudioContext, PlaybackTiming, playCustomWordRecording } from '../utils/audioPlayer';
+import { playSound, playWordSequence, getAudioContext, playBlob, stopAudio } from '../utils/audioPlayer';
+import { getRecording } from '../utils/audioStorage';
+import { Avatar } from './Avatar';
+import { getSoundIdForLetter } from '../utils/soundDefinitions';
 
 interface WordViewerProps {
   wordData: AnalyzedWord;
   onComplete: () => void;
+  onNext?: () => void; 
+  onFeedbackDone?: () => void;
+  completionInstructionId?: string; 
+  visemeConfig: Record<string, number>;
+  globalAvatarTalking?: boolean;
 }
 
-const WordViewer: React.FC<WordViewerProps> = ({ wordData, onComplete }) => {
+const WordViewer: React.FC<WordViewerProps> = ({ wordData, onComplete, onNext, onFeedbackDone, completionInstructionId, visemeConfig, globalAvatarTalking = false }) => {
   const [progressIndex, setProgressIndex] = useState<number>(0);
+  const [playingIndex, setPlayingIndex] = useState<number | null>(null); // New: Track specifically what is playing
   const [highlightedIndices, setHighlightedIndices] = useState<number[]>([]);
   const [wordComplete, setWordComplete] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   
-  // Animation refs
+  // Avatar State
+  const [avatarSpeaking, setAvatarSpeaking] = useState(false);
+  const [activeVisemeId, setActiveVisemeId] = useState<number | null>(null);
+  
+  const avatarTimeoutRef = useRef<number | null>(null);
+
   const letterRefs = useRef<(HTMLDivElement | null)[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
   const [ballStyle, setBallStyle] = useState<React.CSSProperties>({ opacity: 0 });
   const animationFrameRef = useRef<number>(0);
+  
+  // Safety ref to prevent ghost audio if user clicks Next rapidly
+  const isMountedRef = useRef(true);
+
+  // Audio queue cleanup refs
+  const audioTimeoutsRef = useRef<number[]>([]);
+
+  const playInstructionBlob = async (blobId: string, delay: number = 0): Promise<number> => {
+      if (!isMountedRef.current) return 0;
+      const blob = await getRecording(blobId);
+      if (!blob) return getAudioContext().currentTime + delay;
+      
+      const ctx = getAudioContext();
+      const startTime = ctx.currentTime + delay;
+      
+      const t1 = window.setTimeout(() => {
+          if (isMountedRef.current) setAvatarSpeaking(true);
+      }, delay * 1000);
+      audioTimeoutsRef.current.push(t1);
+      
+      const endTime = await playBlob(blob, startTime);
+      
+      const durationMs = (endTime - startTime) * 1000;
+      const t2 = window.setTimeout(() => {
+          if (isMountedRef.current) setAvatarSpeaking(false);
+      }, delay * 1000 + durationMs + 500); // Added 500ms delay
+      audioTimeoutsRef.current.push(t2);
+      
+      return endTime;
+  };
+
+  // Play "Click letters" instruction on mount
+  useEffect(() => {
+      // Small delay to ensure previous word audio is cleared
+      const t = window.setTimeout(() => {
+          if (isMountedRef.current) playInstructionBlob('inst_intro', 0.1);
+      }, 200);
+      audioTimeoutsRef.current.push(t);
+  }, [wordData.id]);
 
   useEffect(() => {
+    // Reset state for new word
+    isMountedRef.current = true;
     setProgressIndex(0);
+    setPlayingIndex(null);
     setHighlightedIndices([]);
     setWordComplete(false);
     setIsPlaying(false);
     setBallStyle({ opacity: 0 });
+    setActiveVisemeId(null);
     letterRefs.current = letterRefs.current.slice(0, wordData.letters.length);
-  }, [wordData]);
 
-  // Auto-skip separators
-  useEffect(() => {
-      if (wordComplete) return;
-      const currentLetter = wordData.letters[progressIndex];
-      if (currentLetter && currentLetter.soundCategory === 'separator') {
-          const nextIndex = progressIndex + 1;
-          // Just advance, do not trigger finish automatically
-          if (nextIndex <= wordData.letters.length) {
-              setTimeout(() => setProgressIndex(nextIndex), 100);
-          }
+    // CLEANUP FUNCTION: Stop audio when word changes or component unmounts
+    return () => {
+        isMountedRef.current = false;
+        stopAudio();
+        if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+        audioTimeoutsRef.current.forEach(clearTimeout);
+        audioTimeoutsRef.current = [];
+        if (avatarTimeoutRef.current) clearTimeout(avatarTimeoutRef.current);
+        setAvatarSpeaking(false);
+        setActiveVisemeId(null);
+    };
+  }, [wordData.id]); 
+
+  // Advance index logic (Handles separators automatically)
+  const advanceProgress = (currentIndex: number) => {
+      let nextIndex = currentIndex + 1;
+      
+      // Skip separators
+      while (nextIndex < wordData.letters.length && wordData.letters[nextIndex].soundCategory === 'separator') {
+          nextIndex++;
       }
-  }, [progressIndex, wordData, wordComplete]);
+      
+      setProgressIndex(nextIndex);
+  };
 
-  // Plays the phonetically stitched version for the ball animation
   const runKaraokeAnimation = async (): Promise<void> => {
-      // FORCE stitched audio (true) to ensure the ball bounces on phonemes properly
       const timings = await playWordSequence(wordData, true);
       
-      if (timings.length === 0) {
-          return Promise.resolve();
-      }
+      if (timings.length === 0) return Promise.resolve();
 
       setIsPlaying(true);
       const ctx = getAudioContext();
@@ -65,19 +130,14 @@ const WordViewer: React.FC<WordViewerProps> = ({ wordData, onComplete }) => {
           return Promise.resolve();
       }
 
-      const firstRect = firstEl.getBoundingClientRect();
-      const lastRect = lastEl.getBoundingClientRect();
-      const containerRect = containerEl.getBoundingClientRect();
-
-      const startX = firstRect.left - containerRect.left;
-      const endX = lastRect.right - containerRect.left;
-      const totalDistance = endX - startX;
-      
       const seqStartTime = timings[0].startTime;
       const totalDuration = (timings[timings.length - 1].startTime + timings[timings.length - 1].duration) - seqStartTime;
 
       return new Promise<void>((resolve) => {
           const animate = () => {
+              // Safety check inside loop
+              if (!isMountedRef.current) return;
+
               const now = ctx.currentTime;
               const elapsed = now - seqStartTime;
               
@@ -90,138 +150,283 @@ const WordViewer: React.FC<WordViewerProps> = ({ wordData, onComplete }) => {
                   setBallStyle({ opacity: 0 });
                   cancelAnimationFrame(animationFrameRef.current);
                   setIsPlaying(false);
-                  resolve();
+                  setActiveVisemeId(null);
+                  
+                  // Keep avatar talking for 500ms after karaoke finishes
+                  setTimeout(() => {
+                      if (isMountedRef.current) setAvatarSpeaking(false);
+                      resolve();
+                  }, 500);
+                  
                   return;
               }
 
-              // X Position (Linear)
-              const progress = elapsed / totalDuration;
-              const currentX = startX + (totalDistance * progress);
+              // IMPORTANT: Re-fetch container rect to handle vertical layout shift animation
+              const currentContainerRect = containerEl.getBoundingClientRect();
 
-              // Y Position (Bounce)
+              // Logic for Active Viseme and Ball Position during karaoke
               let activeTiming = timings.find(t => now >= t.startTime && now < (t.startTime + t.duration));
-              if (!activeTiming) {
-                 activeTiming = timings.find(t => t.startTime > now);
-              }
-
+              
+              let currentX = 0;
               let bounceY = 0;
+
               if (activeTiming) {
-                  const localP = (now - activeTiming.startTime) / activeTiming.duration;
-                  if (localP >= 0 && localP <= 1) {
-                      bounceY = Math.sin(localP * Math.PI) * 15;
+                  setAvatarSpeaking(true);
+                  const letter = wordData.letters[activeTiming.index];
+                  const soundId = letter.soundId || getSoundIdForLetter(letter.char, letter.phoneme, letter.vowelDuration);
+                  if (soundId && visemeConfig[soundId] !== undefined) {
+                      setActiveVisemeId(visemeConfig[soundId]);
+                  } else {
+                      setActiveVisemeId(null); // Fallback to auto-talk
                   }
+                  
+                  // Accurately track ball over the specific letter
+                  const el = letterRefs.current[activeTiming.index];
+                  if (el) {
+                      const elRect = el.getBoundingClientRect();
+                      const elLeft = elRect.left - currentContainerRect.left;
+                      const elWidth = elRect.width;
+                      
+                      const localP = (now - activeTiming.startTime) / activeTiming.duration;
+                      currentX = elLeft + (elWidth * localP);
+                      bounceY = Math.sin(localP * Math.PI) * 10;
+                  }
+              } else {
+                  setActiveVisemeId(null);
+                  // Interpolate gap if needed, or stick to last known? 
+                  // Fallback to simple interpolation for gaps
+                  const fRect = firstEl.getBoundingClientRect();
+                  const lRect = lastEl.getBoundingClientRect();
+                  
+                  const startX = fRect.left - currentContainerRect.left;
+                  const endX = lRect.right - currentContainerRect.left;
+                  const totalDist = endX - startX;
+                  const globalP = elapsed / totalDuration;
+                  currentX = startX + (totalDist * globalP);
               }
 
+              // Determine vertical alignment
               let currentEl = activeTiming ? letterRefs.current[activeTiming.index] : firstEl;
               if (!currentEl) currentEl = firstEl;
               
               const currentElRect = currentEl!.getBoundingClientRect();
-              const currentTop = currentElRect.top - containerRect.top;
+              const currentTop = currentElRect.top - currentContainerRect.top;
 
               setBallStyle({
                   opacity: 1,
                   left: `${currentX}px`, 
-                  top: `${currentTop - 10 - bounceY}px`,
+                  top: `${currentTop - 8 - bounceY}px`,
                   transform: 'translate(0, -50%)',
                   transition: 'none'
               });
 
               animationFrameRef.current = requestAnimationFrame(animate);
           };
-          
           animationFrameRef.current = requestAnimationFrame(animate);
       });
   };
 
-  const handleLetterClick = (letter: LetterData, index: number) => {
+  const handleLetterClick = async (letter: LetterData, index: number) => {
     if (wordComplete) {
-        // Reuse handleReadWord logic to replay full sequence
         handleReadWord();
         return;
     }
     
-    // Ignore clicks if we are done with letters but haven't pressed "Say word" yet
+    // Prevent clicking ahead or clicking while playing
     if (progressIndex >= wordData.letters.length) return;
-
     if (letter.soundCategory === 'separator') return;
     if (index !== progressIndex) return;
+    if (playingIndex !== null) return;
 
+    // 1. Lock UI and Highlight Current
+    setPlayingIndex(index);
+
+    // 2. Play Sound
     playSound(letter.char, letter.phoneme, letter.vowelDuration, letter.soundId);
+    
+    // 3. Avatar Config
+    const soundId = letter.soundId || getSoundIdForLetter(letter.char, letter.phoneme, letter.vowelDuration);
+    if (soundId && visemeConfig[soundId] !== undefined) {
+        setActiveVisemeId(visemeConfig[soundId]);
+    }
+
+    setAvatarSpeaking(true);
 
     if (letter.influencers && letter.influencers.length > 0) {
       setHighlightedIndices(letter.influencers);
-      setTimeout(() => setHighlightedIndices([]), 1500);
     }
 
-    const nextIndex = progressIndex + 1;
-    setProgressIndex(nextIndex);
+    // 4. Determine Duration to wait before advancing
+    let duration = 800; // Default TTS fallback duration (ms)
+
+    // Attempt to get exact duration from recording
+    if (soundId) {
+        const blob = await getRecording(soundId);
+        if (blob) {
+            const ctx = getAudioContext();
+            const ab = await blob.arrayBuffer();
+            const buffer = await ctx.decodeAudioData(ab);
+            duration = buffer.duration * 1000;
+        }
+    }
+
+    // 5. Cleanup and Advance AFTER sound finishes
+    avatarTimeoutRef.current = window.setTimeout(() => {
+        if (isMountedRef.current) {
+            setAvatarSpeaking(false);
+            setActiveVisemeId(null);
+            setPlayingIndex(null);
+            setHighlightedIndices([]);
+            
+            // Now we advance the finger to the next letter
+            advanceProgress(index);
+        }
+        avatarTimeoutRef.current = null;
+    }, duration + 500); // Added 500ms delay
   };
 
-  const handleReadWord = async () => {
-      // 1. Play the stitched sound + animation
+  // Central function for playing sequence
+  const playFullSequence = async (withInstructions: boolean) => {
+      // 1. Visual Karaoke
       await runKaraokeAnimation();
       
-      // 2. Show Emoji
-      setWordComplete(true);
-      onComplete();
+      // GUARD: If user navigated away during animation
+      if (!isMountedRef.current) return;
 
-      // 3. Play the custom recording (if exists) as the "reward"
-      if (wordData.customRecordingId) {
-          playCustomWordRecording(wordData.customRecordingId);
+      if (withInstructions) {
+          setWordComplete(true);
+          onComplete();
       }
+
+      const ctx = getAudioContext();
+      let nextStartTime = ctx.currentTime;
+
+      // 2. Custom Word Recording
+      if (wordData.customRecordingId) {
+          const blob = await getRecording(wordData.customRecordingId);
+          if (blob) {
+              setAvatarSpeaking(true);
+              nextStartTime = await playBlob(blob, nextStartTime);
+              const dur = (nextStartTime - ctx.currentTime) * 1000;
+              const t = window.setTimeout(() => {
+                  if (isMountedRef.current) setAvatarSpeaking(false);
+              }, dur + 500); // Added delay
+              audioTimeoutsRef.current.push(t);
+              nextStartTime += 0.5; // Gap
+          }
+      }
+      
+      if (!isMountedRef.current) return;
+
+      // Stop here if we just want to listen to the word
+      if (!withInstructions) return;
+
+      // 3. "Could you say the word?"
+      const verifyBlob = await getRecording('inst_verify');
+      if (verifyBlob) {
+           const delay = Math.max(0, nextStartTime - ctx.currentTime + 0.5);
+           const t = window.setTimeout(() => {
+               if (isMountedRef.current) setAvatarSpeaking(true);
+           }, delay * 1000);
+           audioTimeoutsRef.current.push(t);
+
+           nextStartTime = await playBlob(verifyBlob, nextStartTime + 0.5);
+           const t2 = window.setTimeout(() => {
+               if (isMountedRef.current) setAvatarSpeaking(false);
+           }, (nextStartTime - ctx.currentTime) * 1000 + 500); // Added delay
+           audioTimeoutsRef.current.push(t2);
+
+           // ADDED: 3 seconds silence after asking "Could you say the word?"
+           nextStartTime += 3.5; 
+      }
+      
+      if (!isMountedRef.current) return;
+
+      // 4. Progress Instruction
+      if (completionInstructionId) {
+          const progBlob = await getRecording(completionInstructionId);
+          if (progBlob) {
+              const gap = 1.0;
+              const delay = Math.max(0, nextStartTime - ctx.currentTime + gap);
+              
+              const t = window.setTimeout(() => {
+                  if (isMountedRef.current) setAvatarSpeaking(true);
+              }, delay * 1000);
+              audioTimeoutsRef.current.push(t);
+
+              nextStartTime = await playBlob(progBlob, nextStartTime + gap);
+              const t2 = window.setTimeout(() => {
+                  if (isMountedRef.current) setAvatarSpeaking(false);
+              }, (nextStartTime - ctx.currentTime) * 1000 + 500); // Added delay
+              audioTimeoutsRef.current.push(t2);
+          }
+      }
+
+      // 5. Notify App that feedback loop is done
+      const timeRemaining = (nextStartTime - ctx.currentTime) * 1000;
+      const doneTimer = window.setTimeout(() => {
+          if (isMountedRef.current && onFeedbackDone) {
+              onFeedbackDone();
+          }
+      }, timeRemaining + 200);
+      audioTimeoutsRef.current.push(doneTimer);
   };
+
+  const handleReadWord = () => playFullSequence(true);
+  const handleListenRepetition = () => playFullSequence(false);
 
   const handleRuleClick = (indices: number[]) => {
       setHighlightedIndices(indices);
-      setTimeout(() => setHighlightedIndices([]), 3000);
+      setTimeout(() => {
+          if (isMountedRef.current) setHighlightedIndices([]);
+      }, 3000);
   };
 
   const renderRow = (isUpperCase: boolean) => {
     return (
-    <div ref={isUpperCase ? containerRef : undefined} className="flex flex-wrap justify-center items-end gap-2 md:gap-3 select-none py-4 px-2 relative min-h-[160px]">
-        {/* Bouncing Ball */}
+    <div ref={isUpperCase ? containerRef : undefined} className="flex flex-nowrap overflow-x-auto no-scrollbar justify-center items-end gap-1 select-none py-2 px-1 relative min-h-[100px] max-w-full">
         {isUpperCase && (
             <div 
-                className="absolute w-8 h-8 rounded-full bg-gradient-to-br from-yellow-300 to-orange-500 shadow-lg border-2 border-white z-50 pointer-events-none"
+                className="absolute w-6 h-6 rounded-full bg-gradient-to-br from-yellow-300 to-orange-500 shadow-sm border-2 border-white z-50 pointer-events-none"
                 style={ballStyle}
             />
         )}
 
         {wordData.letters.map((letter, idx) => {
-          
           if (letter.soundCategory === 'separator') {
-              return <div key={`sep-${idx}`} className="w-8 md:w-12 h-20"></div>;
+              return <div key={`sep-${idx}`} className="w-4 h-12 flex-shrink-0"></div>;
           }
 
-          const isCurrent = idx === progressIndex && !wordComplete; 
+          // State Logic
+          const isTarget = idx === progressIndex && !wordComplete && playingIndex === null;
+          const isPlayingSound = idx === playingIndex;
           const isDone = idx < progressIndex || wordComplete;
           const isInfluencer = highlightedIndices.includes(idx);
           
           const charDisplay = isUpperCase ? letter.char.toUpperCase() : letter.char.toLowerCase();
-
           const charCount = letter.char.length;
-          const widthStyle = { 
-              width: `${charCount * (isUpperCase ? 4 : 3.5)}rem`,
-              minWidth: `${charCount * (isUpperCase ? 4 : 3.5)}rem`
-          };
-
-          const textSizeClass = isUpperCase 
-                ? 'text-5xl md:text-7xl' 
-                : 'text-4xl md:text-6xl';
           
-          let containerClass = `relative flex items-center justify-center font-comic font-bold rounded-2xl transition-all duration-300 cursor-pointer shadow-sm border-b-4 px-1 mx-0.5`;
-          let heightClass = isUpperCase 
-            ? 'h-24 md:h-32' 
-            : 'h-20 md:h-28';
+          const baseUnit = isUpperCase ? 2.5 : 2;
+          const widthStyle = { 
+              width: `${charCount * baseUnit}rem`,
+              minWidth: `${charCount * baseUnit}rem`
+          };
+          const textSizeClass = isUpperCase ? 'text-3xl md:text-5xl' : 'text-2xl md:text-4xl';
+          
+          // Base Style (Neutral / Waiting)
+          let stateClass = "bg-white text-slate-300 border-slate-200"; // Default / Inactive
 
-          let stateClass = "bg-white text-slate-300 border-slate-100";
-
-          if (isCurrent && !isDone) {
-            stateClass = "bg-white text-blue-600 border-blue-200 transform -translate-y-2 shadow-xl z-10 animate-pulse ring-4 ring-blue-100 cursor-pointer";
+          if (isPlayingSound) {
+             // Currently emitting audio (Blue Highlight)
+             stateClass = "bg-blue-50 text-blue-600 border-blue-400 transform -translate-y-1 shadow-md z-10 ring-2 ring-blue-200";
+          } else if (isTarget) {
+             // Waiting to be clicked (Neutral but interactive)
+             stateClass = "bg-white text-slate-700 border-slate-300 cursor-pointer hover:bg-slate-50";
           } else if (isDone) {
-            stateClass = "bg-green-100 text-green-700 border-green-300 opacity-90";
+             // Finished
+             stateClass = "bg-green-50 text-green-700 border-green-200 opacity-90";
           } else if (isInfluencer) {
-            stateClass = "bg-yellow-100 text-orange-600 border-yellow-300 scale-105 shadow-lg ring-2 ring-yellow-400 z-10";
+             stateClass = "bg-yellow-50 text-orange-600 border-yellow-200 shadow ring-1 ring-yellow-200 z-10";
           }
 
           return (
@@ -229,14 +434,19 @@ const WordViewer: React.FC<WordViewerProps> = ({ wordData, onComplete }) => {
               key={`${isUpperCase ? 'U' : 'L'}-${idx}`}
               ref={isUpperCase ? (el) => { letterRefs.current[idx] = el } : undefined}
               onClick={() => handleLetterClick(letter, idx)}
-              className={`${containerClass} ${heightClass} ${textSizeClass} ${stateClass}`}
+              className={`relative flex items-center justify-center font-sans font-bold rounded-lg transition-all duration-200 border-b-2 mx-0.5 flex-shrink-0 h-16 md:h-24 ${textSizeClass} ${stateClass}`}
               style={widthStyle}
-              role="button"
             >
+              {/* Pulsating Finger Indicator */}
+              {isUpperCase && isTarget && (
+                  <div className="absolute -top-10 left-1/2 -translate-x-[90%] text-3xl animate-bounce z-50 pointer-events-none filter drop-shadow-sm w-12 text-center">
+                      👇
+                  </div>
+              )}
+
               <span className="mb-1">{charDisplay}</span>
-              
               {isUpperCase && isInfluencer && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-yellow-400 text-yellow-900 text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap shadow-sm font-sans font-bold z-20 animate-bounce">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-yellow-200 text-yellow-900 text-[9px] px-1.5 py-0.5 rounded-full whitespace-nowrap shadow-sm font-sans font-bold z-20">
                   Påverkar!
                 </div>
               )}
@@ -249,101 +459,115 @@ const WordViewer: React.FC<WordViewerProps> = ({ wordData, onComplete }) => {
   const lettersWithRules = wordData.letters.map((l, i) => ({...l, idx: i})).filter(l => l.pronunciationRule && l.pronunciationRule.trim() !== "");
   const readyToRead = progressIndex >= wordData.letters.length && !wordComplete;
 
+  // Logic for Big Avatar: Talking (globally or instruction OR karaoke) AND not clicking a single letter
+  const isBigAvatar = (isPlaying || avatarSpeaking || globalAvatarTalking) && playingIndex === null;
+
   return (
-    <div className="flex flex-col items-center justify-center w-full max-w-6xl mx-auto">
+    <div className="flex flex-col items-center justify-center w-full max-w-4xl mx-auto px-2 relative mt-2">
       
-      {/* Emoji Reward - Only shown AFTER audio completes */}
+      <div className="w-full flex justify-between items-end mb-2 h-20 md:h-0 relative">
+          
+          <div className="flex-1 text-lg font-bold text-slate-500 h-8 flex items-center justify-center md:justify-start pl-0 md:pl-4">
+            {wordComplete 
+              ? <span className="text-green-600 animate-bounce block text-xl">Snyggt! 🎉</span> 
+              : readyToRead
+                ? <span className="text-blue-600 block text-xl animate-pulse">Läs ordet 👇</span>
+                : <span className="flex items-center gap-2">
+                    Tryck på: 
+                    <span className="text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100 font-mono text-xl">
+                      {wordData.letters[progressIndex]?.char.toUpperCase()} {wordData.letters[progressIndex]?.char.toLowerCase()}
+                    </span>
+                  </span>
+            }
+          </div>
+
+          {/* Avatar Position Logic */}
+          <div 
+             className={
+                 isBigAvatar 
+                 ? "fixed top-10 left-1/2 transform -translate-x-1/2 w-[50vh] h-[50vh] z-[100] transition-all duration-1000 ease-in-out filter drop-shadow-2xl" 
+                 : "absolute right-0 bottom-2 w-20 h-24 md:w-28 md:h-32 z-30 transition-all duration-1000 ease-in-out"
+             }
+          >
+             <Avatar 
+                isTalking={avatarSpeaking || globalAvatarTalking} 
+                visemeId={activeVisemeId}
+                className="w-full h-full" 
+             />
+          </div>
+      </div>
+
       {wordData.emoji && wordComplete && (
-          <div className="animate-bounce-in text-8xl mb-6 filter drop-shadow-xl transition-all duration-1000 ease-out">
+          <div className="animate-bounce-in text-6xl md:text-8xl mb-4 filter drop-shadow-lg transition-all duration-1000 ease-out">
               {wordData.emoji}
           </div>
       )}
 
-      {/* Status Header */}
-      <div className="text-xl font-bold text-slate-500 mb-4 h-8 text-center">
-        {wordComplete 
-          ? <span className="text-green-600 animate-bounce block text-2xl">Snyggt! 🎉</span> 
-          : readyToRead
-            ? <span className="text-blue-600 block text-2xl animate-pulse">Bra! Läs ordet nu 👇</span>
-            : <span className="flex items-center gap-2 justify-center">
-                Tryck på: 
-                <span className="text-blue-600 bg-blue-50 px-3 py-1 rounded-lg border border-blue-100 font-mono text-2xl">
-                  {wordData.letters[progressIndex]?.char.toUpperCase()} {wordData.letters[progressIndex]?.char.toLowerCase()}
-                </span>
-              </span>
-        }
-      </div>
-
-      <div className="flex flex-col gap-8 w-full items-center bg-white/60 backdrop-blur-sm p-4 md:p-8 rounded-[2.5rem] border border-white/50 shadow-xl ring-1 ring-blue-50">
-        
-        {/* Uppercase Section */}
-        <div className="w-full relative bg-blue-50/50 rounded-2xl p-4 border border-blue-100/50">
-            <div className="absolute -top-3 left-4">
-                 <span className="bg-white text-blue-400 text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full shadow-sm border border-blue-50">
-                    Versaler (Stora)
-                 </span>
+      {/* Word Container with Layout Shift Animation */}
+      <div className={`flex flex-col gap-4 w-full items-center bg-white p-3 md:p-6 rounded-2xl border border-slate-100 shadow-md max-w-full overflow-hidden z-20 relative transition-all duration-1000 ease-in-out ${isBigAvatar ? 'translate-y-[25vh]' : ''}`}>
+        <div className="w-full relative bg-blue-50/30 rounded-xl p-2 border border-blue-50 overflow-hidden">
+            <div className="absolute top-0 left-2 z-20">
+                 <span className="text-blue-300 text-[9px] font-bold uppercase tracking-widest">Versaler</span>
             </div>
             {renderRow(true)}
         </div>
 
-        {/* Lowercase Section */}
-        <div className="w-full relative bg-purple-50/50 rounded-2xl p-4 border border-purple-100/50">
-            <div className="absolute -top-3 left-4">
-                <span className="bg-white text-purple-400 text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full shadow-sm border border-purple-50">
-                    Gemener (Små)
-                </span>
+        <div className="w-full relative bg-purple-50/30 rounded-xl p-2 border border-purple-50 overflow-hidden">
+             <div className="absolute top-0 left-2 z-20">
+                <span className="text-purple-300 text-[9px] font-bold uppercase tracking-widest">Gemener</span>
             </div>
             {renderRow(false)}
         </div>
       </div>
 
-      {/* Explanation List (Bottom) */}
       {lettersWithRules.length > 0 && (
-          <div className="mt-8 w-full max-w-3xl">
-              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3 text-center">Uttalsregler i detta ord</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="mt-4 w-full max-w-2xl">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   {lettersWithRules.map((l, i) => (
                       <button 
                         key={i}
                         onMouseEnter={() => handleRuleClick([l.idx, ...(l.influencers || [])])}
                         onClick={() => handleRuleClick([l.idx, ...(l.influencers || [])])}
-                        className="flex items-center gap-3 p-3 bg-white/80 rounded-xl shadow-sm border border-slate-100 hover:bg-yellow-50 hover:border-yellow-200 transition-all text-left group"
+                        className="flex items-center gap-2 p-2 bg-white rounded-lg border border-slate-100 hover:bg-yellow-50 text-left shadow-sm"
                       >
-                          <span className="bg-slate-100 text-slate-600 font-mono font-bold px-2 py-1 rounded group-hover:bg-white group-hover:text-orange-500">
-                              {l.char}
-                          </span>
-                          <span className="text-sm text-slate-700 leading-snug">
-                              {l.pronunciationRule}
-                          </span>
+                          <span className="bg-slate-100 text-slate-600 font-mono font-bold px-1.5 py-0.5 rounded text-xs">{l.char}</span>
+                          <span className="text-xs text-slate-600 leading-snug">{l.pronunciationRule}</span>
                       </button>
                   ))}
               </div>
           </div>
       )}
 
-      {/* Action Buttons */}
-      <div className="mt-8 h-20 flex items-center justify-center">
-        {readyToRead && !wordComplete && (
+      <div className="mt-6 h-16 flex items-center justify-center gap-3">
+        {readyToRead && !wordComplete && !isPlaying && (
             <button
                 onClick={handleReadWord}
                 disabled={isPlaying}
-                className="animate-bounce flex items-center gap-2 px-10 py-4 rounded-full font-bold text-2xl bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-xl hover:shadow-2xl hover:scale-110 transition-all ring-4 ring-green-200"
+                className="flex items-center gap-2 px-8 py-3 rounded-full font-bold text-lg bg-green-500 text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all"
             >
-                {isPlaying ? 'Lyssnar...' : '🗣️ Läs ordet'}
+                🗣️ Läs ordet
             </button>
         )}
         
         {wordComplete && (
-            <button
-                onClick={handleReadWord}
-                disabled={isPlaying}
-                className="animate-fade-in-up flex items-center gap-2 px-8 py-3 rounded-full font-bold text-lg bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all ring-4 ring-blue-200"
-            >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
-                </svg>
-                {isPlaying ? 'Lyssnar...' : 'Lyssna igen'}
-            </button>
+            <>
+                <button
+                    onClick={handleListenRepetition}
+                    disabled={isPlaying}
+                    className="flex items-center gap-2 px-4 py-2 rounded-full font-bold text-sm bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all border border-blue-100"
+                >
+                    {isPlaying ? '...' : '🔊 Lyssna'}
+                </button>
+                
+                {onNext && (
+                    <button
+                        onClick={onNext}
+                        className="animate-pulse flex items-center gap-2 px-6 py-3 rounded-full font-bold text-lg bg-purple-600 text-white shadow-lg hover:scale-105 transition-all"
+                    >
+                        Nästa ➜
+                    </button>
+                )}
+            </>
         )}
       </div>
 

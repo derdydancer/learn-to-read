@@ -1,15 +1,39 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AppState, AnalyzedWord, LetterData } from './types';
 import { generateWordList } from './services/geminiService';
 import { analyzeWord } from './utils/phonics';
 import { ALL_SOUNDS } from './utils/soundDefinitions';
-import { saveRecording, getRecording, deleteRecording } from './utils/audioStorage';
-import { playBlob, playWordSequence } from './utils/audioPlayer';
+import { getDefaultVisemeForSound } from './utils/visemePaths';
+import { saveRecording, getRecording, deleteRecording, exportFullBackup, importFullBackup, encodeWAV, saveVisemeConfig, getVisemeConfig } from './utils/audioStorage';
+import { playBlob, playWordSequence, getAudioContext } from './utils/audioPlayer';
 import WordViewer from './components/WordViewer';
 import SoundTest from './components/SoundTest';
-import ApiKeyInput from './components/ApiKeyInput';
+import { Avatar } from './components/Avatar';
 
-// Hardcoded initial words with GROUPED letters for special sounds
+// ... Helper to trim ...
+const trimAudioBuffer = (buffer: AudioBuffer, ctx: AudioContext): AudioBuffer => {
+  const channelData = buffer.getChannelData(0);
+  const threshold = 0.02; 
+  let start = 0;
+  let end = buffer.length;
+  for (let i = 0; i < buffer.length; i++) { if (Math.abs(channelData[i]) > threshold) { start = i; break; } }
+  for (let i = buffer.length - 1; i >= 0; i--) { if (Math.abs(channelData[i]) > threshold) { end = i + 1; break; } }
+  const padding = Math.floor(buffer.sampleRate * 0.1);
+  start = Math.max(0, start - padding);
+  end = Math.min(buffer.length, end + padding);
+  if (end <= start) return buffer;
+  const newLength = end - start;
+  const newBuffer = ctx.createBuffer(buffer.numberOfChannels, newLength, buffer.sampleRate);
+  for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+    const old = buffer.getChannelData(ch);
+    const newData = newBuffer.getChannelData(ch);
+    for (let i = 0; i < newLength; i++) { newData[i] = old[start + i]; }
+  }
+  return newBuffer;
+};
+
+// Initial Words
 const INITIAL_WORDS: AnalyzedWord[] = [
     {
         id: 'init-1',
@@ -54,7 +78,6 @@ const ExpertEditor: React.FC<{ words: AnalyzedWord[]; onSave: (words: AnalyzedWo
 
     const currentWord = localWords.find(w => w.id === selectedId);
 
-    // Check if current word has custom audio on load/select
     useEffect(() => {
         if(currentWord && currentWord.customRecordingId) {
              getRecording(currentWord.customRecordingId).then(blob => setHasCustomAudio(!!blob));
@@ -62,6 +85,14 @@ const ExpertEditor: React.FC<{ words: AnalyzedWord[]; onSave: (words: AnalyzedWo
             setHasCustomAudio(false);
         }
     }, [currentWord]);
+
+    const handleAddWord = () => {
+        if (!newWordText.trim()) return;
+        const newWord = analyzeWord(newWordText.trim());
+        setLocalWords(prev => [...prev, newWord]);
+        setSelectedId(newWord.id);
+        setNewWordText('');
+    };
 
     const handleUpdateLetter = (wordId: string, letterIndex: number, field: keyof LetterData, value: any) => {
         setLocalWords(prev => prev.map(w => {
@@ -77,15 +108,6 @@ const ExpertEditor: React.FC<{ words: AnalyzedWord[]; onSave: (words: AnalyzedWo
             setLocalWords(prev => prev.filter(w => w.id !== id));
             if (selectedId === id) setSelectedId('');
         }
-    };
-
-    const handleAddWord = () => {
-        if (!newWordText.trim()) return;
-        // Use the smart analyzer to generate defaults
-        const newWord = analyzeWord(newWordText.trim());
-        setLocalWords(prev => [...prev, newWord]);
-        setSelectedId(newWord.id);
-        setNewWordText('');
     };
 
     const handleAddSoundBlock = (wordId: string) => {
@@ -113,56 +135,52 @@ const ExpertEditor: React.FC<{ words: AnalyzedWord[]; onSave: (words: AnalyzedWo
         }));
     };
 
-    // --- Custom Recording Logic ---
-    
-    const startRecording = async () => {
-        if (!currentWord) return;
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorderRef.current = new MediaRecorder(stream);
-            chunksRef.current = [];
+    const toggleRecording = async () => {
+        if (isRecording) {
+            // STOP
+            if (mediaRecorderRef.current) mediaRecorderRef.current.stop();
+        } else {
+            // START
+            if (!currentWord) return;
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorderRef.current = new MediaRecorder(stream);
+                chunksRef.current = [];
+                mediaRecorderRef.current.ondataavailable = (e) => {
+                    if (e.data.size > 0) chunksRef.current.push(e.data);
+                };
+                mediaRecorderRef.current.onstop = async () => {
+                    const rawBlob = new Blob(chunksRef.current, { type: 'audio/webm' }); 
+                    
+                    // TRIM
+                    const ctx = getAudioContext();
+                    const ab = await rawBlob.arrayBuffer();
+                    const audioBuffer = await ctx.decodeAudioData(ab);
+                    const trimmed = trimAudioBuffer(audioBuffer, ctx);
+                    const wavBlob = encodeWAV(trimmed.getChannelData(0), trimmed.sampleRate);
 
-            mediaRecorderRef.current.ondataavailable = (e) => {
-                if (e.data.size > 0) chunksRef.current.push(e.data);
-            };
-
-            mediaRecorderRef.current.onstop = async () => {
-                const blob = new Blob(chunksRef.current, { type: 'audio/webm' }); 
-                // Save using word ID as the recording ID
-                await saveRecording(currentWord.id, blob);
-                setHasCustomAudio(true);
-                
-                // Update local word to point to this recording
-                setLocalWords(prev => prev.map(w => w.id === currentWord.id ? {...w, customRecordingId: currentWord.id} : w));
-                
-                stream.getTracks().forEach(track => track.stop());
-            };
-
-            mediaRecorderRef.current.start();
-            setIsRecording(true);
-        } catch (err) {
-            alert("Kunde inte starta mikrofonen.");
+                    await saveRecording(currentWord.id, wavBlob);
+                    setHasCustomAudio(true);
+                    setLocalWords(prev => prev.map(w => w.id === currentWord.id ? {...w, customRecordingId: currentWord.id} : w));
+                    stream.getTracks().forEach(track => track.stop());
+                    setIsRecording(false);
+                };
+                mediaRecorderRef.current.start();
+                setIsRecording(true);
+            } catch (err) { alert("Mic Error"); }
         }
     };
-
-    const stopRecording = () => {
-        if (mediaRecorderRef.current && isRecording) {
-            mediaRecorderRef.current.stop();
-            setIsRecording(false);
-        }
+    
+    const playGenerated = async () => {
+        if (!currentWord) return;
+        const tempWord = { ...currentWord, customRecordingId: undefined };
+        await playWordSequence(tempWord);
     };
 
     const playCustomRecording = async () => {
         if (!currentWord || !currentWord.customRecordingId) return;
         const blob = await getRecording(currentWord.customRecordingId);
         if (blob) playBlob(blob);
-    };
-    
-    const playGenerated = async () => {
-        if (!currentWord) return;
-        // Force playWordSequence to ignore custom recording for this preview
-        const tempWord = { ...currentWord, customRecordingId: undefined };
-        await playWordSequence(tempWord);
     };
 
     const deleteCustomRecording = async () => {
@@ -176,192 +194,101 @@ const ExpertEditor: React.FC<{ words: AnalyzedWord[]; onSave: (words: AnalyzedWo
 
     return (
         <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl w-full max-w-5xl h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="bg-white rounded-xl w-full max-w-5xl h-[90vh] flex flex-col shadow-2xl overflow-hidden">
                 <div className="p-4 border-b flex justify-between items-center bg-slate-50">
-                    <h2 className="font-bold text-lg text-slate-700">⚙️ Expertredigerare</h2>
-                    <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+                    <h2 className="font-bold text-lg text-slate-700">⚙️ Expert</h2>
+                    <button onClick={onClose} className="text-slate-400">✕</button>
                 </div>
-                
                 <div className="flex flex-1 overflow-hidden">
-                    {/* Left Panel: List */}
-                    <div className="w-1/3 border-r bg-slate-50 flex flex-col">
-                        <div className="p-4 border-b">
-                            <h3 className="text-xs font-bold uppercase text-slate-400 mb-2">Lägg till nytt ord</h3>
-                            <div className="flex gap-2">
-                                <input 
-                                    type="text" 
-                                    className="flex-1 border rounded px-2 py-1 text-sm"
-                                    placeholder="t.ex. banan"
-                                    value={newWordText}
-                                    onChange={e => setNewWordText(e.target.value)}
-                                    onKeyDown={e => e.key === 'Enter' && handleAddWord()}
-                                />
-                                <button onClick={handleAddWord} className="bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600">+</button>
-                            </div>
-                        </div>
-                        <div className="flex-1 overflow-y-auto p-2">
+                    <div className="w-1/3 border-r bg-slate-50 flex flex-col p-4 gap-4">
+                         <div className="flex gap-2">
+                            <input 
+                                value={newWordText} 
+                                onChange={e => setNewWordText(e.target.value)} 
+                                onKeyDown={e => e.key === 'Enter' && handleAddWord()}
+                                className="border rounded px-2 flex-1 h-10" 
+                                placeholder="Nytt ord..." 
+                            />
+                            <button onClick={handleAddWord} className="bg-green-500 hover:bg-green-600 text-white px-4 h-10 rounded font-bold transition-colors">+</button>
+                         </div>
+                         <div className="overflow-y-auto flex-1">
                              {localWords.map(w => (
-                                 <div 
-                                    key={w.id} 
-                                    onClick={() => setSelectedId(w.id)}
-                                    className={`p-3 mb-1 rounded cursor-pointer flex justify-between items-center group ${w.id === selectedId ? 'bg-blue-100 ring-1 ring-blue-300' : 'hover:bg-white'}`}
-                                 >
-                                     <span className="font-medium">{w.text}</span>
-                                     <button 
-                                        onClick={(e) => { e.stopPropagation(); handleDeleteWord(w.id); }}
-                                        className="text-red-300 hover:text-red-500 opacity-0 group-hover:opacity-100"
-                                     >🗑</button>
-                                 </div>
+                                 <div key={w.id} onClick={() => setSelectedId(w.id)} className={`p-2 cursor-pointer ${w.id===selectedId ? 'bg-blue-100' : ''}`}>{w.text}</div>
                              ))}
-                        </div>
+                         </div>
                     </div>
-
-                    {/* Right Panel: Detail Editor */}
-                    <div className="flex-1 overflow-y-auto p-6 bg-white">
-                        {currentWord ? (
-                            <div>
-                                <div className="mb-6 border-b pb-6">
-                                    <div className="flex justify-between items-end gap-4 mb-4">
-                                        <div className="flex-1">
-                                            <label className="text-xs font-bold uppercase text-slate-400">Ordtext</label>
-                                            <input 
-                                                value={currentWord.text} 
-                                                onChange={(e) => setLocalWords(prev => prev.map(w => w.id === currentWord.id ? {...w, text: e.target.value} : w))}
-                                                className="text-3xl font-bold text-slate-800 border-b-2 border-slate-200 focus:border-blue-500 outline-none w-full bg-transparent" 
-                                            />
-                                        </div>
-                                        <div className="w-20">
-                                            <label className="text-xs font-bold uppercase text-slate-400">Emoji</label>
-                                            <input 
-                                                value={currentWord.emoji || ''} 
-                                                onChange={(e) => setLocalWords(prev => prev.map(w => w.id === currentWord.id ? {...w, emoji: e.target.value} : w))}
-                                                className="text-3xl font-bold text-slate-800 border-b-2 border-slate-200 focus:border-blue-500 outline-none w-full bg-transparent text-center" 
-                                                placeholder="🙂"
-                                            />
-                                        </div>
-                                    </div>
-                                    
-                                    {/* Audio Recording Section */}
-                                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex items-center justify-between">
-                                        <div className="text-sm">
-                                            <h4 className="font-bold text-blue-900">Manuellt Ljud (Hela ordet)</h4>
-                                            <p className="text-blue-600 text-xs">Spela in hur ordet låter. Detta spelas upp istället för de ihopklippta bokstäverna.</p>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <button onClick={playGenerated} className="px-3 py-1 bg-white border rounded text-xs text-slate-600 hover:bg-slate-50">
-                                                🔊 Lyssna (Genererat)
-                                            </button>
-                                            
-                                            <button
-                                                onMouseDown={startRecording}
-                                                onMouseUp={stopRecording}
-                                                onTouchStart={startRecording}
-                                                onTouchEnd={stopRecording}
-                                                className={`p-3 rounded-full transition-all active:scale-95 shadow-sm border ${isRecording ? 'bg-red-600 text-white border-red-700 scale-110' : 'bg-white text-red-500 border-red-100 hover:bg-red-50'}`}
-                                            >
-                                                {isRecording ? <div className="w-4 h-4 bg-white animate-pulse rounded-sm"/> : <div className="w-4 h-4 bg-red-500 rounded-full"/>}
-                                            </button>
-
-                                            {hasCustomAudio && (
-                                                <>
-                                                    <button onClick={playCustomRecording} className="p-3 rounded-full bg-green-100 text-green-700 hover:bg-green-200">
-                                                        ▶️
-                                                    </button>
-                                                    <button onClick={deleteCustomRecording} className="p-3 rounded-full bg-slate-100 text-slate-400 hover:text-red-500 hover:bg-red-50">
-                                                        🗑
-                                                    </button>
-                                                </>
-                                            )}
-                                        </div>
-                                    </div>
+                    <div className="flex-1 p-4 overflow-y-auto">
+                        {currentWord && (
+                            <div className="space-y-4">
+                                <input value={currentWord.text} onChange={e => setLocalWords(prev => prev.map(w => w.id === currentWord.id ? {...w, text: e.target.value} : w))} className="text-2xl font-bold w-full border-b" />
+                                <input value={currentWord.emoji || ''} onChange={e => setLocalWords(prev => prev.map(w => w.id === currentWord.id ? {...w, emoji: e.target.value} : w))} className="text-xl w-full border-b" placeholder="Emoji" />
+                                <div className="flex items-center gap-4 bg-blue-50 p-2 rounded">
+                                    <button 
+                                        onClick={toggleRecording} 
+                                        className={`px-4 py-2 rounded ${isRecording ? 'bg-red-500 text-white' : 'bg-white border text-red-500'}`}
+                                    >
+                                        {isRecording ? 'STOPP' : '● SPELA IN'}
+                                    </button>
+                                    {hasCustomAudio && <span className="text-green-600 text-xs">Inspelning finns</span>}
+                                    {hasCustomAudio && (
+                                        <>
+                                            <button onClick={playCustomRecording} className="p-2 bg-green-100 rounded">▶</button>
+                                            <button onClick={deleteCustomRecording} className="p-2 bg-red-100 rounded">✕</button>
+                                        </>
+                                    )}
                                 </div>
-
-                                <div className="flex justify-between items-center mb-2">
-                                     <h4 className="text-sm font-bold uppercase text-slate-400">Ljudblock</h4>
-                                     <button onClick={() => handleAddSoundBlock(currentWord.id)} className="text-sm text-blue-600 hover:underline">+ Lägg till ljudblock</button>
+                                <div className="flex justify-between">
+                                    <span className="text-xs font-bold uppercase text-slate-400">Ljudblock</span>
+                                    <button onClick={() => handleAddSoundBlock(currentWord.id)} className="text-xs text-blue-600">+ Lägg till</button>
                                 </div>
-
-                                <div className="space-y-4">
-                                    {currentWord.letters.map((letter, idx) => (
-                                        <div key={idx} className="flex gap-4 items-start p-4 border rounded-xl bg-slate-50 relative group">
-                                            <div className="w-8 h-8 flex items-center justify-center bg-slate-200 rounded-full absolute -left-4 top-4 text-xs font-bold text-slate-500">
-                                                {idx + 1}
-                                            </div>
-                                            
-                                            {/* Char Input */}
-                                            <div className="flex flex-col w-20">
-                                                <label className="text-[10px] font-bold uppercase text-slate-400">Bokstäver</label>
-                                                <input 
-                                                    value={letter.char} 
-                                                    onChange={(e) => handleUpdateLetter(currentWord.id, idx, 'char', e.target.value)}
-                                                    className="font-comic font-bold text-xl border rounded p-2 text-center"
-                                                />
-                                            </div>
-
-                                            {/* Sound Selector */}
-                                            <div className="flex flex-col flex-1">
-                                                <label className="text-[10px] font-bold uppercase text-slate-400">Ljud (ID)</label>
-                                                <select 
-                                                    value={letter.soundId || ''} 
-                                                    onChange={(e) => handleUpdateLetter(currentWord.id, idx, 'soundId', e.target.value)}
-                                                    className="border rounded p-2 text-sm bg-white"
-                                                >
-                                                    <option value="">-- Välj ljud --</option>
-                                                    {ALL_SOUNDS.map(s => (
-                                                        <option key={s.id} value={s.id}>
-                                                            {s.label} ({s.id}) - ex: {s.example}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                                <div className="mt-2 text-xs text-slate-500">
-                                                    Kategori: 
-                                                    <select 
-                                                        value={letter.soundCategory}
-                                                        onChange={(e) => handleUpdateLetter(currentWord.id, idx, 'soundCategory', e.target.value)}
-                                                        className="ml-2 border rounded p-1 text-xs"
-                                                    >
-                                                        <option value="vowel">Vokal</option>
-                                                        <option value="consonant">Konsonant</option>
-                                                        <option value="digraph">Digraf/Grupp</option>
-                                                        <option value="separator">Mellanslag/Tyst</option>
-                                                    </select>
-                                                </div>
-                                            </div>
-
-                                            {/* Rule Input */}
-                                            <div className="flex flex-col flex-1">
-                                                <label className="text-[10px] font-bold uppercase text-slate-400">Förklaring/Regel</label>
-                                                <input 
-                                                    value={letter.pronunciationRule || ''} 
-                                                    onChange={(e) => handleUpdateLetter(currentWord.id, idx, 'pronunciationRule', e.target.value)}
-                                                    placeholder="T.ex. Mjukt K..." 
-                                                    className="border rounded p-2 text-sm w-full"
-                                                />
-                                            </div>
-
-                                            <button 
-                                                onClick={() => handleRemoveSoundBlock(currentWord.id, idx)}
-                                                className="text-red-400 hover:text-red-600 p-2"
-                                                title="Ta bort block"
-                                            >
-                                                ✕
-                                            </button>
+                                <div className="space-y-2">
+                                    {currentWord.letters.map((l, i) => (
+                                        <div key={i} className="flex gap-2 border p-2 rounded bg-slate-50">
+                                            <input value={l.char} onChange={e => handleUpdateLetter(currentWord.id, i, 'char', e.target.value)} className="w-12 text-center font-bold" />
+                                            <select value={l.soundId || ''} onChange={e => handleUpdateLetter(currentWord.id, i, 'soundId', e.target.value)} className="flex-1 text-sm">
+                                                <option value="">Auto</option>
+                                                {ALL_SOUNDS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                                            </select>
+                                            <button onClick={() => handleRemoveSoundBlock(currentWord.id, i)} className="text-red-400">✕</button>
                                         </div>
                                     ))}
                                 </div>
                             </div>
-                        ) : (
-                            <div className="h-full flex items-center justify-center text-slate-400">
-                                Välj ett ord till vänster eller skapa ett nytt.
-                            </div>
                         )}
                     </div>
                 </div>
-
-                <div className="p-4 border-t flex justify-end gap-3 bg-slate-50">
-                    <button onClick={onClose} className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg">Avbryt</button>
-                    <button onClick={() => { onSave(localWords); onClose(); }} className="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-lg">Spara Ändringar</button>
+                <div className="p-4 border-t flex justify-end gap-2">
+                    <button onClick={() => { onSave(localWords); onClose(); }} className="bg-blue-600 text-white px-4 py-2 rounded">Spara</button>
                 </div>
+            </div>
+        </div>
+    );
+};
+
+const PasscodeModal: React.FC<{ onClose: () => void; onUnlock: () => void }> = ({ onClose, onUnlock }) => {
+    const [code, setCode] = useState('');
+    
+    useEffect(() => {
+        if (code === '9999') {
+            onUnlock();
+            onClose();
+        }
+    }, [code, onUnlock, onClose]);
+
+    return (
+        <div className="fixed inset-0 bg-black/80 z-[200] flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl p-6 w-full max-w-xs shadow-xl flex flex-col gap-4 text-center">
+                <h3 className="text-lg font-bold text-slate-700">Lås upp inställningar</h3>
+                <input 
+                    type="password" 
+                    value={code} 
+                    onChange={e => setCode(e.target.value)} 
+                    className="text-center text-3xl tracking-widest p-2 border rounded bg-slate-50"
+                    placeholder="...."
+                    maxLength={4}
+                    autoFocus
+                />
+                <button onClick={onClose} className="text-slate-400 text-sm underline">Avbryt</button>
             </div>
         </div>
     );
@@ -372,258 +299,436 @@ const App: React.FC = () => {
   const [currentWordId, setCurrentWordId] = useState<string>(INITIAL_WORDS[0].id);
   const [completedWordIds, setCompletedWordIds] = useState<Set<string>>(new Set());
   
+  const [sessionMode, setSessionMode] = useState<'explore' | 'training'>('explore');
+  const [trainingQueue, setTrainingQueue] = useState<AnalyzedWord[]>([]);
+  const [trainingIndex, setTrainingIndex] = useState(0);
+
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
   const [mode, setMode] = useState<'words' | 'sentences'>('words');
   const [apiKeyMissing, setApiKeyMissing] = useState(false);
-  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
   const [view, setView] = useState<'app' | 'test'>('app');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false); 
   const [expertMode, setExpertMode] = useState(false);
+  
+  // Settings & Security
+  const [settingsUnlocked, setSettingsUnlocked] = useState(false);
+  const [passcodeModalOpen, setPasscodeModalOpen] = useState(false);
+
+  // Quick add input
+  const [quickAddText, setQuickAddText] = useState('');
+
+  // Suggestions logic
+  const [nextSuggestions, setNextSuggestions] = useState<AnalyzedWord[]>([]);
+  const [suggestionHighlightIndex, setSuggestionHighlightIndex] = useState(0);
+  const mainScrollRef = useRef<HTMLDivElement>(null);
+
+  // Avatar State
+  const [globalAvatarTalking, setGlobalAvatarTalking] = useState(false);
+
+  // Viseme Config
+  const [visemeConfig, setVisemeConfig] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    const hasApiKey = localStorage.getItem('gemini_api_key') || process.env.API_KEY;
-    if (!hasApiKey) {
+    if (!process.env.API_KEY) {
       setApiKeyMissing(true);
     }
+
+    // Load Visemes
+    const loadedConfig = getVisemeConfig();
+    // Populate defaults if missing
+    const newConfig = { ...loadedConfig };
+    let changed = false;
+    ALL_SOUNDS.forEach(sound => {
+        if (newConfig[sound.id] === undefined) {
+            newConfig[sound.id] = getDefaultVisemeForSound(sound.id, sound.char);
+            changed = true;
+        }
+    });
+    if (changed) {
+        saveVisemeConfig(newConfig);
+    }
+    setVisemeConfig(newConfig);
+
+    // GLOBAL AUDIO UNLOCK
+    const unlockAudio = () => {
+        const ctx = getAudioContext();
+        if (ctx.state === 'suspended') {
+            ctx.resume().catch(e => console.error("Auto-resume failed", e));
+        }
+    };
+    window.addEventListener('click', unlockAudio);
+    return () => window.removeEventListener('click', unlockAudio);
   }, []);
 
-  const handleGenerate = useCallback(async () => {
-    const hasApiKey = localStorage.getItem('gemini_api_key') || process.env.API_KEY;
-    if (!hasApiKey) {
-      setShowApiKeyInput(true);
-      return;
+  // Suggestions loop animation
+  useEffect(() => {
+    if (nextSuggestions.length > 0) {
+        const interval = setInterval(() => {
+            setSuggestionHighlightIndex(prev => (prev + 1) % nextSuggestions.length);
+        }, 1000);
+        return () => clearInterval(interval);
     }
+  }, [nextSuggestions.length]);
+
+  const handleSaveVisemeConfig = (newConfig: Record<string, number>) => {
+      setVisemeConfig(newConfig);
+      saveVisemeConfig(newConfig);
+  };
+
+  const handleQuickAdd = () => {
+      if(!quickAddText.trim()) return;
+      const newWord = analyzeWord(quickAddText.trim());
+      setAllWords(prev => [...prev, newWord]);
+      setQuickAddText('');
+      setCurrentWordId(newWord.id);
+      setSessionMode('explore');
+      setNextSuggestions([]);
+      if(window.innerWidth < 768) setSidebarOpen(false);
+  };
+
+  const startTraining = async () => {
+      const blob = await getRecording('inst_start');
+      let waitTime = 0;
+      if (blob) {
+          setGlobalAvatarTalking(true);
+          const endTime = await playBlob(blob);
+          const ctx = getAudioContext();
+          waitTime = Math.max(0, (endTime - ctx.currentTime) * 1000);
+          
+          setTimeout(() => setGlobalAvatarTalking(false), waitTime);
+      }
+
+      const neverPracticed = allWords.filter(w => !w.lastPracticed);
+      const oldPracticed = allWords
+          .filter(w => w.lastPracticed)
+          .sort((a, b) => (a.lastPracticed || 0) - (b.lastPracticed || 0));
+
+      const queue = [...neverPracticed];
+      if (queue.length < 5) {
+          const needed = 5 - queue.length;
+          queue.push(...oldPracticed.slice(0, needed));
+      }
+      
+      const finalQueue = queue.slice(0, 5);
+      
+      if (finalQueue.length === 0) {
+          alert("Inga ord finns att träna på.");
+          setGlobalAvatarTalking(false);
+          return;
+      }
+
+      setTimeout(() => {
+          setTrainingQueue(finalQueue);
+          setTrainingIndex(0);
+          setCurrentWordId(finalQueue[0].id);
+          setSessionMode('training');
+          setNextSuggestions([]);
+          setSidebarOpen(false); 
+      }, waitTime);
+  };
+
+  const handleGenerate = useCallback(async () => {
+    if (apiKeyMissing) { alert("API Key missing."); return; }
     setAppState(AppState.LOADING);
     try {
       const existingTexts = allWords.map(w => w.text);
       const newWords = await generateWordList(5, mode === 'words' ? 'simple' : 'medium', existingTexts);
       setAllWords(prev => [...prev, ...newWords]);
-      if(newWords.length > 0) {
+      if(newWords.length > 0 && sessionMode === 'explore') {
           setCurrentWordId(newWords[0].id);
+          setNextSuggestions([]);
       }
       setAppState(AppState.PLAYING);
     } catch (e) {
       console.error(e);
-      if (e.message.includes('No API key found')) {
-        setShowApiKeyInput(true);
-      }
       setAppState(AppState.ERROR);
     }
-  }, [mode, allWords]);
+  }, [mode, apiKeyMissing, allWords, sessionMode]);
 
-  const handleApiKeySet = (apiKey: string) => {
-    setApiKeyMissing(false);
-    // Optionally trigger generation after setting API key
-  };
-
-  const handleWordComplete = () => {
+  const handleWordComplete = async () => {
       setCompletedWordIds(prev => new Set(prev).add(currentWordId));
+      setAllWords(prev => prev.map(w => w.id === currentWordId ? { ...w, lastPracticed: Date.now() } : w));
+      
+      // Auto-exit training mode if it was the last word
+      if (sessionMode === 'training' && trainingIndex === trainingQueue.length - 1) {
+          setSessionMode('explore');
+          setTrainingQueue([]);
+      }
   };
 
-  const exportWords = () => {
-      const blob = new Blob([JSON.stringify(allWords, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `lasresan-ordlista-${new Date().toISOString().slice(0,10)}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+  const handleFeedbackDone = async () => {
+      // Allow suggestions if in explore mode OR if it's the last word of a training session (which will be explore mode by now)
+      // Since we switch mode in handleWordComplete, sessionMode will likely be 'explore' here
+      if (sessionMode === 'explore') {
+          // Pick 3 random words that are NOT the current one
+          const available = allWords.filter(w => w.id !== currentWordId);
+          // Simple shuffle
+          const shuffled = [...available].sort(() => 0.5 - Math.random());
+          const suggestions = shuffled.slice(0, 3);
+          
+          if (suggestions.length > 0) {
+              setNextSuggestions(suggestions);
+              // Play instruction "Pick a word"
+              const blob = await getRecording('inst_choose_next');
+              if (blob) {
+                  setGlobalAvatarTalking(true);
+                  const end = await playBlob(blob);
+                  setTimeout(() => setGlobalAvatarTalking(false), (end - getAudioContext().currentTime) * 1000);
+              }
+              
+              // Scroll to bottom
+              setTimeout(() => {
+                  if (mainScrollRef.current) {
+                      mainScrollRef.current.scrollTo({
+                          top: mainScrollRef.current.scrollHeight,
+                          behavior: 'smooth'
+                      });
+                  }
+              }, 100);
+          }
+      }
+  };
+
+  const handleNextTrainingWord = async () => {
+      const nextIdx = trainingIndex + 1;
+      if (nextIdx < trainingQueue.length) {
+          setTrainingIndex(nextIdx);
+          setCurrentWordId(trainingQueue[nextIdx].id);
+      } else {
+          setSessionMode('explore');
+          setTrainingQueue([]);
+      }
+  };
+
+  const handleSuggestionClick = (wordId: string) => {
+      setNextSuggestions([]);
+      setCurrentWordId(wordId);
+      // Reset mode to explore if we clicked a suggestion
+      setSessionMode('explore');
+      setTrainingQueue([]);
+      
+      // Scroll back up
+      setTimeout(() => {
+          if (mainScrollRef.current) {
+               mainScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+      }, 50);
+  }
+
+  const exportWords = async () => {
+      try {
+          const json = await exportFullBackup(allWords);
+          const blob = new Blob([json], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `lasresan-backup-${new Date().toISOString().slice(0,10)}.json`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+      } catch (e) { alert("Fel vid export."); }
   };
 
   const importWords = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if(!file) return;
-
       const reader = new FileReader();
-      reader.onload = (ev) => {
+      reader.onload = async (ev) => {
           try {
-              const parsed = JSON.parse(ev.target?.result as string);
-              if(Array.isArray(parsed)) {
-                  setAllWords(prev => {
-                      // Avoid duplicates based on ID
-                      const existingIds = new Set(prev.map(w => w.id));
-                      const uniqueNew = parsed.filter((w: AnalyzedWord) => !existingIds.has(w.id));
-                      return [...prev, ...uniqueNew];
+              const content = ev.target?.result as string;
+              const importedWords = await importFullBackup(content);
+              
+              // Also reload viseme config in case it was in backup
+              const newVisemeConfig = getVisemeConfig();
+              setVisemeConfig(newVisemeConfig);
+
+              setAllWords(prev => {
+                  const combinedMap = new Map(prev.map(w => [w.id, w]));
+                  importedWords.forEach(w => {
+                      combinedMap.set(w.id, w);
                   });
-                  alert(`Importerade ${parsed.length} ord.`);
-              } else {
-                  alert("Ogiltigt format.");
-              }
-          } catch(err) {
-              alert("Kunde inte läsa filen.");
-          }
+                  return Array.from(combinedMap.values());
+              });
+              alert(`Backup återställd! ${importedWords.length} ord laddade.`);
+          } catch(err) { alert("Fel vid import."); }
       };
       reader.readAsText(file);
-      e.target.value = ''; // Reset
+      e.target.value = ''; 
   }
 
   const currentWordData = allWords.find(w => w.id === currentWordId);
   const sortedWords = [...allWords].sort((a, b) => a.text.localeCompare(b.text, 'sv'));
 
-  if (view === 'test') {
-      return <SoundTest onClose={() => setView('app')} />;
-  }
+  const currentInstructionId = sessionMode === 'training' 
+      ? (trainingIndex + 1 === 5 ? 'inst_prog_final' : `inst_prog_${trainingIndex + 1}`)
+      : undefined;
+
+  if (view === 'test') { return <SoundTest onClose={() => setView('app')} visemeConfig={visemeConfig} onSaveVisemeConfig={handleSaveVisemeConfig} />; }
 
   return (
     <div className="min-h-screen bg-soft-blue flex flex-col font-sans h-screen overflow-hidden">
       
+      {passcodeModalOpen && (
+          <PasscodeModal onClose={() => setPasscodeModalOpen(false)} onUnlock={() => setSettingsUnlocked(true)} />
+      )}
+
       {expertMode && (
-          <ExpertEditor
-            words={allWords}
-            onSave={(newWords) => setAllWords(newWords)}
-            onClose={() => setExpertMode(false)}
+          <ExpertEditor 
+            words={allWords} 
+            onSave={(newWords) => setAllWords(newWords)} 
+            onClose={() => setExpertMode(false)} 
           />
       )}
 
-      {showApiKeyInput && (
-        <ApiKeyInput
-          onApiKeySet={handleApiKeySet}
-          onClose={() => setShowApiKeyInput(false)}
-        />
-      )}
-
-      {/* Hidden Import Input */}
       <input type="file" id="import-words" className="hidden" accept=".json" onChange={importWords} />
 
-      {/* Header */}
-      <header className="w-full p-4 bg-white/90 backdrop-blur-sm border-b border-blue-100 flex justify-between items-center z-50 shadow-sm flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <button 
-            className="md:hidden p-2 text-slate-600"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </button>
-          <div className="bg-blue-600 text-white p-2 rounded-lg shadow-md hidden sm:block">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-            </svg>
-          </div>
-          <h1 className="text-xl md:text-2xl font-bold text-slate-700 tracking-tight hidden xs:block">Läsresan</h1>
+      <header className="w-full p-2 bg-white/90 backdrop-blur-sm border-b border-blue-100 flex justify-between items-center z-50 shadow-sm flex-shrink-0 transition-all">
+        <div className="flex items-center gap-2">
+          {settingsUnlocked && (
+             <button className="md:hidden p-2 text-slate-600" onClick={() => setSidebarOpen(!sidebarOpen)}>
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+             </button>
+          )}
+          <h1 className="text-lg md:text-xl font-bold text-slate-700 tracking-tight ml-2">Läsresan</h1>
         </div>
         
-        <div className="flex items-center gap-2 md:gap-4">
-           <button
-              onClick={() => setShowApiKeyInput(true)}
-              className="text-sm font-medium text-slate-500 hover:text-blue-600 px-3 py-1 bg-slate-50 hover:bg-blue-50 rounded-lg transition-colors border border-slate-200 flex items-center gap-2"
-           >
-              🔑 API Key
-           </button>
-
-           <button
-              onClick={() => setView('test')}
-              className="text-sm font-medium text-slate-500 hover:text-blue-600 px-3 py-1 bg-slate-50 hover:bg-blue-50 rounded-lg transition-colors border border-slate-200"
-           >
-              🛠️ Testa ljud
-           </button>
-           
-           {/* Expert Dropdown/Button */}
-           <div className="relative group">
-               <button className="text-sm font-medium text-slate-500 px-3 py-1 bg-slate-50 hover:bg-purple-50 hover:text-purple-600 rounded-lg border border-slate-200 transition-colors">
-                   ⚙️ Expert
+        {settingsUnlocked ? (
+            <div className="flex items-center gap-2">
+               <button onClick={() => setView('test')} className="text-sm font-medium text-slate-500 bg-slate-50 border px-3 py-1.5 rounded-lg">🛠️ Ljud</button>
+               <button onClick={() => document.getElementById('import-words')?.click()} className="text-sm font-medium text-slate-500 bg-slate-50 border px-3 py-1.5 rounded-lg">📥</button>
+               <button onClick={exportWords} className="text-sm font-medium text-slate-500 bg-slate-50 border px-3 py-1.5 rounded-lg">📤</button>
+               <button onClick={() => setExpertMode(true)} className="text-sm font-medium text-blue-600 bg-blue-50 border border-blue-100 px-3 py-1.5 rounded-lg font-bold">⚙️</button>
+               <button onClick={() => setSettingsUnlocked(false)} className="bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1 hover:bg-slate-300">
+                  <span>Göm</span>
                </button>
-               <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-100 hidden group-hover:block z-50 overflow-hidden">
-                   <button onClick={exportWords} className="w-full text-left px-4 py-3 hover:bg-slate-50 text-sm">📥 Exportera Ordlista</button>
-                   <button onClick={() => document.getElementById('import-words')?.click()} className="w-full text-left px-4 py-3 hover:bg-slate-50 text-sm">📤 Importera Lista</button>
-                   <div className="h-px bg-slate-100 my-1"></div>
-                   <button onClick={() => setExpertMode(true)} className="w-full text-left px-4 py-3 hover:bg-slate-50 text-sm text-blue-600 font-bold">✏️ Redigera Ord</button>
-               </div>
-           </div>
-
-           <div className="bg-slate-100 p-1 rounded-lg flex text-xs md:text-sm font-medium">
-             <button 
-               onClick={() => setMode('words')}
-               className={`px-2 md:px-3 py-1.5 rounded-md transition-all ${mode === 'words' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-             >
-               Ord
-             </button>
-             <button 
-               onClick={() => setMode('sentences')}
-               className={`px-2 md:px-3 py-1.5 rounded-md transition-all ${mode === 'sentences' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-             >
-               Meningar
-             </button>
-           </div>
-        </div>
+            </div>
+        ) : (
+            <button onClick={() => setPasscodeModalOpen(true)} className="text-slate-300 hover:text-slate-400 p-2">
+                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" /></svg>
+            </button>
+        )}
       </header>
 
-      {/* Main Layout */}
       <div className="flex flex-1 overflow-hidden relative">
           
-          {/* Sidebar */}
-          <aside className={`
-            absolute md:relative z-40 h-full w-64 bg-white border-r border-slate-200 shadow-xl md:shadow-none transition-transform duration-300 transform 
-            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
-          `}>
-             <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
-                 <h2 className="font-bold text-slate-500 uppercase text-xs tracking-wider">Mina Ord ({sortedWords.length})</h2>
-                 <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400">✕</button>
-             </div>
-             
-             <div className="overflow-y-auto h-full pb-20 p-2 space-y-1">
-                 {sortedWords.map(word => {
-                     const isCompleted = completedWordIds.has(word.id);
-                     const isSelected = word.id === currentWordId;
-                     return (
-                         <button 
-                            key={word.id}
-                            onClick={() => {
-                                setCurrentWordId(word.id);
-                                setSidebarOpen(false);
-                            }}
-                            className={`w-full text-left px-4 py-3 rounded-lg flex items-center justify-between transition-colors
-                                ${isSelected ? 'bg-blue-50 ring-1 ring-blue-200' : 'hover:bg-slate-50'}
-                            `}
-                         >
-                             <span className={`font-comic font-medium truncate ${isCompleted ? 'text-green-700' : 'text-slate-400'}`}>
-                                 {word.text}
-                             </span>
-                             {isCompleted && <span className="text-green-500 text-xs font-bold">✓</span>}
-                         </button>
-                     )
-                 })}
-             </div>
-             
-             {/* Generate Button in Sidebar for easy access */}
-             <div className="absolute bottom-0 left-0 w-full p-4 bg-white/90 border-t backdrop-blur-sm">
-                 <button 
-                    onClick={handleGenerate}
-                    disabled={appState === AppState.LOADING}
-                    className="w-full bg-green-500 hover:bg-green-600 text-white py-3 rounded-xl font-bold shadow-md active:scale-95 transition-all flex justify-center items-center gap-2"
-                 >
-                     {appState === AppState.LOADING ? 'Laddar...' : '✨ Hämta nya'}
-                 </button>
-             </div>
-          </aside>
+          {/* Main Layout: Sidebar only visible if unlocked and open */}
+          {settingsUnlocked && (
+              <aside className={`absolute md:relative z-40 h-full w-64 bg-white border-r border-slate-200 shadow-xl md:shadow-none transition-transform duration-300 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} flex flex-col`}>
+                 <div className="p-3 bg-slate-50 border-b flex justify-between items-center">
+                     <h2 className="font-bold text-slate-500 uppercase text-xs tracking-wider">Mina Ord</h2>
+                     <button onClick={() => setSidebarOpen(false)} className="md:hidden">✕</button>
+                 </div>
+                 
+                 {/* Quick Add Word */}
+                 <div className="p-2 border-b bg-slate-50/50">
+                     <div className="flex gap-1">
+                         <input 
+                            className="flex-1 border rounded px-2 py-1 text-sm" 
+                            placeholder="Lägg till ord..."
+                            value={quickAddText}
+                            onChange={(e) => setQuickAddText(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleQuickAdd()}
+                         />
+                         <button onClick={handleQuickAdd} className="bg-blue-500 text-white px-2 rounded font-bold hover:bg-blue-600">+</button>
+                     </div>
+                 </div>
 
-          {/* Canvas */}
-          <main className="flex-1 flex flex-col items-center justify-center p-4 relative overflow-y-auto bg-soft-blue w-full">
+                 <div className="overflow-y-auto flex-1 p-2 space-y-1">
+                     {sortedWords.map(word => {
+                         const isCompleted = completedWordIds.has(word.id) || !!word.lastPracticed;
+                         return (
+                             <button 
+                                key={word.id}
+                                onClick={() => { setCurrentWordId(word.id); setSessionMode('explore'); setNextSuggestions([]); setSidebarOpen(false); }}
+                                className={`w-full text-left px-3 py-2 rounded-lg flex items-center justify-between transition-colors ${word.id === currentWordId ? 'bg-blue-50 ring-1 ring-blue-200' : 'hover:bg-slate-50'}`}
+                             >
+                                 <span className={`font-medium text-sm truncate ${isCompleted ? 'text-green-700' : 'text-slate-600'}`}>{word.text}</span>
+                                 {isCompleted && <span className="text-green-500 text-xs">✓</span>}
+                             </button>
+                         )
+                     })}
+                 </div>
+                 <div className="p-3 bg-white border-t">
+                     <button onClick={handleGenerate} disabled={appState === AppState.LOADING} className="w-full bg-blue-500 text-white py-2 rounded-lg font-bold text-sm shadow">
+                         {appState === AppState.LOADING ? '...' : '✨ Nya ord (AI)'}
+                     </button>
+                 </div>
+              </aside>
+          )}
+
+          <main ref={mainScrollRef} className="flex-1 flex flex-col items-center p-2 md:p-4 bg-soft-blue w-full relative overflow-y-auto">
             
-            {/* Decorative BG */}
-            <div className="absolute top-20 left-10 w-32 h-32 bg-yellow-200 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob pointer-events-none"></div>
-            <div className="absolute top-40 right-10 w-32 h-32 bg-purple-200 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-2000 pointer-events-none"></div>
+            {/* Start Training Button - Top Middle */}
+            {sessionMode !== 'training' && (
+               <div className="w-full flex justify-center mb-4 mt-2">
+                   <button 
+                       onClick={startTraining} 
+                       className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-full font-bold text-lg shadow-lg flex items-center gap-2 transform hover:scale-105 transition-all"
+                   >
+                      🚀 Starta Träning
+                   </button>
+               </div>
+            )}
 
-            <div className="w-full max-w-5xl z-10 flex flex-col items-center">
-                
+            <div className="w-full max-w-4xl z-10 flex flex-col items-center flex-1 justify-start">
                 {currentWordData ? (
-                    <div className="w-full">
-                        <div className="bg-white/50 backdrop-blur-md rounded-[3rem] shadow-2xl p-4 md:p-12 border border-white min-h-[500px] flex flex-col justify-center relative items-center">
-                            <WordViewer 
-                                wordData={currentWordData} 
-                                onComplete={handleWordComplete}
-                            />
-                        </div>
+                    <div className="w-full flex flex-col items-center pb-20">
+                        {sessionMode === 'training' && (
+                            <div className="w-full max-w-md mb-2 px-4">
+                                <div className="flex justify-between text-xs text-slate-500 font-bold mb-1 uppercase tracking-wider">
+                                    <span>Träning</span>
+                                    <span>{trainingIndex + 1} / {trainingQueue.length}</span>
+                                </div>
+                                <div className="h-3 bg-white rounded-full overflow-hidden shadow-inner border border-blue-100">
+                                    <div className="h-full bg-green-500 transition-all duration-500" style={{ width: `${((trainingIndex + 0.5) / trainingQueue.length) * 100}%` }}></div>
+                                </div>
+                            </div>
+                        )}
+                        
+                        <WordViewer 
+                            key={currentWordId} 
+                            wordData={currentWordData} 
+                            onComplete={handleWordComplete}
+                            onFeedbackDone={handleFeedbackDone}
+                            onNext={sessionMode === 'training' ? handleNextTrainingWord : undefined}
+                            completionInstructionId={currentInstructionId}
+                            visemeConfig={visemeConfig}
+                            globalAvatarTalking={globalAvatarTalking}
+                        />
+
+                        {/* Suggestions after completion in Explore Mode OR Last Training Word */}
+                        {nextSuggestions.length > 0 && (
+                            <div className="mt-8 w-full max-w-2xl animate-fade-in-up pb-10">
+                                <div className="text-center mb-6">
+                                    <h3 className="text-xl font-bold text-slate-600">Välj ett nytt ord:</h3>
+                                </div>
+                                <div className="grid grid-cols-3 gap-4">
+                                    {nextSuggestions.map((word, idx) => {
+                                        const isHighlighted = idx === suggestionHighlightIndex;
+                                        return (
+                                            <button 
+                                                key={word.id}
+                                                onClick={() => handleSuggestionClick(word.id)}
+                                                className={`relative bg-white rounded-xl shadow-md border-2 p-4 flex flex-col items-center justify-center transition-all duration-300 h-32 md:h-40 ${isHighlighted ? 'scale-110 border-blue-400 ring-4 ring-blue-100 z-10' : 'border-slate-100 hover:border-blue-200'}`}
+                                            >
+                                                {isHighlighted && (
+                                                    <div className="absolute -top-12 left-1/2 -translate-x-[90%] text-4xl animate-bounce filter drop-shadow-sm w-12 text-center pointer-events-none z-50">
+                                                        👇
+                                                    </div>
+                                                )}
+                                                <div className="text-4xl md:text-5xl mb-2 opacity-50">❓</div>
+                                                <div className="font-bold text-lg md:text-xl text-slate-700 capitalize">{word.text}</div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 ) : (
-                    <div className="text-center text-slate-400">
-                        Inga ord laddade.
-                    </div>
+                    <div className="text-center text-slate-400 mt-10">Inga ord.</div>
                 )}
-
             </div>
           </main>
       </div>

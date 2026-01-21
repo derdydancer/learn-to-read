@@ -1,61 +1,75 @@
+
 import { speakLetter as ttsSpeakLetter, speakText as ttsSpeakText } from './tts';
 import { getRecording } from './audioStorage';
 import { getSoundIdForLetter } from './soundDefinitions';
 import { AnalyzedWord, LetterData } from '../types';
 
 let audioContext: AudioContext | null = null;
+let analyser: AnalyserNode | null = null;
+let amplitudeListeners: ((level: number) => void)[] = [];
+let animationFrameId: number | null = null;
+let activeSources: AudioBufferSourceNode[] = [];
 
 export const getAudioContext = () => {
   if (!audioContext) {
     audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    
+    // Setup Analyser for Lip Sync
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 512; 
+    analyser.smoothingTimeConstant = 0.5; // Smoother transitions
+    
+    startAmplitudeLoop();
   }
   return audioContext;
 };
 
-/**
- * Trims silence from the beginning and end of an AudioBuffer.
- */
-const trimSilence = (buffer: AudioBuffer, ctx: AudioContext): AudioBuffer => {
-  const channelData = buffer.getChannelData(0); // Analyze first channel
-  const threshold = 0.02; // Silence threshold (0.0 to 1.0)
-
-  let start = 0;
-  let end = buffer.length;
-
-  // Find start
-  for (let i = 0; i < buffer.length; i++) {
-    if (Math.abs(channelData[i]) > threshold) {
-      start = i;
-      break;
+// Stops all currently playing sounds
+export const stopAudio = () => {
+    activeSources.forEach(source => {
+        try { source.stop(); } catch(e) {}
+    });
+    activeSources = [];
+    if(typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
     }
-  }
+};
 
-  // Find end
-  for (let i = buffer.length - 1; i >= 0; i--) {
-    if (Math.abs(channelData[i]) > threshold) {
-      end = i + 1;
-      break;
-    }
-  }
-  
-  const padding = Math.floor(buffer.sampleRate * 0.05);
-  start = Math.max(0, start - padding);
-  end = Math.min(buffer.length, end + padding);
+// Helper to check if we are playing real audio (vs TTS)
+export const isPlayingAudioContext = () => activeSources.length > 0;
 
-  if (end <= start) return buffer;
+// Internal loop to broadcast volume levels
+const startAmplitudeLoop = () => {
+    if (animationFrameId) return;
 
-  const newLength = end - start;
-  const newBuffer = ctx.createBuffer(buffer.numberOfChannels, newLength, buffer.sampleRate);
+    const loop = () => {
+        if (analyser && amplitudeListeners.length > 0) {
+            const bufferLength = analyser.fftSize;
+            const dataArray = new Uint8Array(bufferLength);
+            
+            // Get data
+            analyser.getByteTimeDomainData(dataArray);
 
-  for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
-    const oldData = buffer.getChannelData(ch);
-    const newData = newBuffer.getChannelData(ch);
-    for (let i = 0; i < newLength; i++) {
-      newData[i] = oldData[start + i];
-    }
-  }
+            // Calculate RMS (Root Mean Square) for volume
+            let sum = 0;
+            for(let i = 0; i < bufferLength; i++) {
+                const x = (dataArray[i] - 128) / 128.0;
+                sum += x * x;
+            }
+            const rms = Math.sqrt(sum / bufferLength);
+            
+            amplitudeListeners.forEach(cb => cb(rms));
+        }
+        animationFrameId = requestAnimationFrame(loop);
+    };
+    loop();
+};
 
-  return newBuffer;
+export const registerAmplitudeListener = (callback: (level: number) => void) => {
+    amplitudeListeners.push(callback);
+    return () => {
+        amplitudeListeners = amplitudeListeners.filter(cb => cb !== callback);
+    };
 };
 
 export const playSound = async (char: string, phoneme?: string, vowelDuration?: 'long'|'short', soundId?: string, preferTTS = false) => {
@@ -78,12 +92,12 @@ export const playSound = async (char: string, phoneme?: string, vowelDuration?: 
         const ctx = getAudioContext();
         const arrayBuffer = await blob.arrayBuffer();
         const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-        const trimmed = trimSilence(audioBuffer, ctx);
-        playBuffer(trimmed, ctx);
+        // Direct playback without trimming to ensure sound isn't lost
+        playBuffer(audioBuffer, ctx);
         return;
       }
     } catch (e) {
-      console.error("Failed to play recording", e);
+      // Quietly fail to TTS
     }
   }
 
@@ -109,9 +123,28 @@ export const playCustomWordRecording = async (recordingId: string): Promise<void
 };
 
 const playBuffer = (buffer: AudioBuffer, ctx: AudioContext, when: number = 0): number => {
+    // Force Resume
+    if (ctx.state === 'suspended') {
+        ctx.resume().catch(e => console.error("Audio resume failed", e));
+    }
+
     const source = ctx.createBufferSource();
     source.buffer = buffer;
+    
+    // CRITICAL: Connect to Destination FIRST (Speakers)
     source.connect(ctx.destination);
+    
+    // Connect to Analyser separately for visuals (if fails, audio still works)
+    if (analyser) {
+        try {
+            source.connect(analyser);
+        } catch(e) { console.error("Analyser connect failed", e); }
+    }
+    
+    activeSources.push(source);
+    source.onended = () => {
+        activeSources = activeSources.filter(s => s !== source);
+    };
     
     const startTime = when > ctx.currentTime ? when : ctx.currentTime;
     source.start(startTime);
@@ -124,17 +157,9 @@ export interface PlaybackTiming {
     duration: number;
 }
 
-/**
- * "Stitches" the word together by playing recorded sounds in sequence.
- * Returns timing information for animation synchronization.
- * 
- * @param word The word to play
- * @param forceStitched If true, ignores custom recording and plays phonetic stitch (used for ball animation)
- */
 export const playWordSequence = async (word: AnalyzedWord, forceStitched: boolean = false): Promise<PlaybackTiming[]> => {
   const ctx = getAudioContext();
   
-  // Check for custom whole-word recording (unless forced to stitch)
   let customBuffer: AudioBuffer | null = null;
   if (!forceStitched && word.customRecordingId) {
       try {
@@ -148,13 +173,12 @@ export const playWordSequence = async (word: AnalyzedWord, forceStitched: boolea
       }
   }
 
-  // 1. Gather all required audio buffers for letters (needed for timing regardless of custom audio)
+  // Gather buffers
   const audioQueue: { buffer: AudioBuffer | null; letter: LetterData; index: number; estimatedDuration: number }[] = [];
   let totalStitchedDuration = 0;
   
   for (let i = 0; i < word.letters.length; i++) {
      const letter = word.letters[i];
-     
      if (letter.soundCategory === 'separator') {
          audioQueue.push({ buffer: null, letter, index: i, estimatedDuration: 0.4 });
          totalStitchedDuration += 0.4;
@@ -162,25 +186,20 @@ export const playWordSequence = async (word: AnalyzedWord, forceStitched: boolea
      }
      if (letter.isSilent) continue; 
      
-     let targetId = letter.soundId;
-     if (!targetId) {
-        targetId = getSoundIdForLetter(letter.char, letter.phoneme, letter.vowelDuration);
-     }
+     let targetId = letter.soundId || getSoundIdForLetter(letter.char, letter.phoneme, letter.vowelDuration);
 
      let buffer: AudioBuffer | null = null;
-     let duration = 0.3; // Fallback duration
+     let duration = 0.3; 
 
      if (targetId) {
         const blob = await getRecording(targetId);
         if (blob) {
             const arrayBuffer = await blob.arrayBuffer();
-            const rawBuffer = await ctx.decodeAudioData(arrayBuffer);
-            buffer = trimSilence(rawBuffer, ctx);
+            buffer = await ctx.decodeAudioData(arrayBuffer);
             duration = buffer.duration;
         }
      }
      
-     // Reduce duration slightly for overlap calculation simulation
      const overlap = 0.02; 
      const effectiveDuration = Math.max(0.1, duration - overlap);
      
@@ -192,12 +211,7 @@ export const playWordSequence = async (word: AnalyzedWord, forceStitched: boolea
   const startTime = ctx.currentTime + 0.1;
 
   if (customBuffer) {
-      // --- PLAY CUSTOM RECORDING ---
       playBuffer(customBuffer, ctx, startTime);
-
-      // --- CALCULATE SCALED TIMINGS ---
-      // We map the theoretical stitched duration to the actual custom duration
-      // to make the ball bounce in sync with the custom audio speed.
       const ratio = customBuffer.duration / (totalStitchedDuration || 1);
       
       let currentRelTime = 0;
@@ -210,40 +224,22 @@ export const playWordSequence = async (word: AnalyzedWord, forceStitched: boolea
           });
           currentRelTime += scaledDuration;
       }
-
   } else {
-      // --- PLAY STITCHED SEQUENCE ---
       let nextStartTime = startTime;
-      
       for (const item of audioQueue) {
           if (item.letter.soundCategory === 'separator') {
-              timings.push({
-                  index: item.index,
-                  startTime: nextStartTime,
-                  duration: 0.4
-              });
+              timings.push({ index: item.index, startTime: nextStartTime, duration: 0.4 });
               nextStartTime += 0.4;
               continue;
           }
 
           if (item.buffer) {
             playBuffer(item.buffer, ctx, nextStartTime);
-            
-            timings.push({
-                index: item.index,
-                startTime: nextStartTime,
-                duration: item.buffer.duration
-            });
-
+            timings.push({ index: item.index, startTime: nextStartTime, duration: item.buffer.duration });
             const overlap = 0.02; 
             nextStartTime += Math.max(0, item.buffer.duration - overlap); 
           } else {
-              // Missing recording fallback (simulate time)
-               timings.push({
-                  index: item.index,
-                  startTime: nextStartTime,
-                  duration: 0.3
-              });
+               timings.push({ index: item.index, startTime: nextStartTime, duration: 0.3 });
               nextStartTime += 0.3;
           }
       }

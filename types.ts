@@ -16,6 +16,7 @@ export interface AnalyzedWord {
   emoji?: string;
   letters: LetterData[];
   customRecordingId?: string; // ID of a manual recording for the whole word
+  lastPracticed?: number; // Timestamp when last completed
 }
 
 export interface ContentResponse {

@@ -3,25 +3,11 @@ import { AnalyzedWord } from "../types";
 import { analyzeWord as fallbackAnalyze } from "../utils/phonics";
 import { getSoundListForPrompt } from "../utils/soundDefinitions";
 
-// Get API key from localStorage or environment variable
-const getApiKey = (): string => {
-  return localStorage.getItem('gemini_api_key') || process.env.API_KEY || '';
-};
-
-// Initialize AI with current API key
-const getAiInstance = () => {
-  const apiKey = getApiKey();
-  return new GoogleGenAI({ apiKey });
-};
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const generateWordList = async (count: number = 5, complexity: 'simple' | 'medium' = 'simple', excludeWords: string[] = []): Promise<AnalyzedWord[]> => {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    throw new Error('No API key found. Please set your Gemini API key in the settings.');
-  }
-
   const model = 'gemini-2.5-flash';
-
+  
   const soundList = getSoundListForPrompt();
 
   const prompt = `
@@ -64,7 +50,6 @@ export const generateWordList = async (count: number = 5, complexity: 'simple' |
   `;
 
   try {
-    const ai = getAiInstance();
     const response = await ai.models.generateContent({
       model,
       contents: prompt,
