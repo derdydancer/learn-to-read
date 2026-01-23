@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { speakLetter as ttsSpeakLetter, speakText as ttsSpeakText, getSwedishVoice } from '../utils/tts';
-import { saveRecording, getRecording, deleteRecording, getAllRecordingIds, exportRecordingsToJSON, importRecordingsFromJSON, encodeWAV } from '../utils/audioStorage';
+// Fix: Updated imports to match utils/audioStorage exports. Removed non-existent exportRecordingsToJSON and importRecordingsFromJSON.
+import { saveRecording, getRecording, deleteRecording, getAllRecordingIds, exportFullBackup, importFullBackup, encodeWAV } from '../utils/audioStorage';
 import { playBlob, getAudioContext } from '../utils/audioPlayer';
 import { SoundItem, VOWELS, CONSONANTS, SPECIALS, INSTRUCTIONS } from '../utils/soundDefinitions';
 import { VISEMES } from '../utils/visemePaths';

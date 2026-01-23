@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { AnalyzedWord } from "../types";
 import { analyzeWord as fallbackAnalyze } from "../utils/phonics";
@@ -6,7 +7,8 @@ import { getSoundListForPrompt } from "../utils/soundDefinitions";
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const generateWordList = async (count: number = 5, complexity: 'simple' | 'medium' = 'simple', excludeWords: string[] = []): Promise<AnalyzedWord[]> => {
-  const model = 'gemini-2.5-flash';
+  // Fix: Use 'gemini-3-flash-preview' for text tasks as per guidelines.
+  const model = 'gemini-3-flash-preview';
   
   const soundList = getSoundListForPrompt();
 
