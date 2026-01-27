@@ -1,14 +1,17 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { AnalyzedWord } from "../types";
 import { analyzeWord as fallbackAnalyze } from "../utils/phonics";
 import { getSoundListForPrompt } from "../utils/soundDefinitions";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const getAIClient = () => {
+  const manualKey = typeof window !== 'undefined' ? localStorage.getItem('GEMINI_API_KEY') : null;
+  const apiKey = manualKey || process.env.API_KEY || "";
+  return new GoogleGenAI(apiKey);
+};
 
 export const generateWordList = async (count: number = 5, complexity: 'simple' | 'medium' = 'simple', excludeWords: string[] = []): Promise<AnalyzedWord[]> => {
-  // Fix: Use 'gemini-3-flash-preview' for text tasks as per guidelines.
-  const model = 'gemini-3-flash-preview';
+  const ai = getAIClient();
+  const model = 'gemini-2.5-flash';
   
   const soundList = getSoundListForPrompt();
 
@@ -27,35 +30,17 @@ export const generateWordList = async (count: number = 5, complexity: 'simple' |
     
     INSTRUKTIONER:
     1. GRUPPERING AV LJUD (VIKTIGT): 
-       - Om flera bokstäver bildar ett gemensamt ljud (t.ex. "sj", "sk", "tj", "ng", "tt", "ll"), SKA de ligga i SAMMA objekt i listan 'letters'.
-       - Exempel "Sju": 
-          { char: "sj", soundId: "sp1", ... }, 
-          { char: "u", soundId: "v_u_long", ... }
-       - Exempel "Katt":
-          { char: "k", soundId: "c7", ... },
-          { char: "a", soundId: "v_a_short", ... },
-          { char: "tt", soundId: "c15", ... } (Dubbelteckning grupperas)
-    
     2. För VOKALER (a, o, u, å, e, i, y, ä, ö): Du måste välja om ljudet är långt (t.ex. v_a_long) eller kort (t.ex. v_a_short).
-    
     3. För KONSONANTER: Välj rätt ID.
-       - Var noga med "G" och "K" (hårda vs mjuka).
-    
     4. MENINGAR: Mellanslag ska markeras som soundCategory='separator'.
-    
     5. pronunciationRule: 
-       - Ange ENDAST en förklaring om uttalet skiljer sig från bokstavens normala/vanligaste ljud eller om det är en speciell regel (t.ex. mjukt K, digrafer som 'sj').
-       - Om bokstaven låter exakt som den brukar (t.ex. 's' i 'sol', 'm' i 'mat'), LÄMNA TOMT sträng ("").
-
     6. EMOJI:
-       - Generera en passande emoji som representerar ordet visuellt.
   `;
 
   try {
-    const response = await ai.models.generateContent({
-      model,
-      contents: prompt,
-      config: {
+    const response = await ai.getGenerativeModel({ model }).generateContent({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: {
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -91,7 +76,7 @@ export const generateWordList = async (count: number = 5, complexity: 'simple' |
       }
     });
 
-    const jsonText = response.text;
+    const jsonText = response.response.text();
     if (!jsonText) throw new Error("Empty response");
 
     const data = JSON.parse(jsonText);

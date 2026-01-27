@@ -1,16 +1,15 @@
 
 import { AnalyzedWord } from '../types';
 
-// Handles storage of audio blobs and app metadata in IndexedDB.
-// Browser's localStorage is too small for audio files, and IndexedDB is more reliable for Cordova.
+// Handles storage of audio blobs in IndexedDB.
+// Browser's localStorage is too small for audio files.
 
 const DB_NAME = 'LasresanAudioDB';
 const STORE_NAME = 'recordings';
-const DATA_STORE = 'appData'; // New store for word lists and progress
-const DB_VERSION = 2; // Increment version for new store
+const DB_VERSION = 1;
 
 interface AudioRecord {
-  id: string; // The SoundItem ID or Word ID
+  id: string; // The SoundItem ID (e.g., 'h1', 'c5') or Word ID
   blob: Blob;
   timestamp: number;
 }
@@ -26,9 +25,6 @@ const openDB = (): Promise<IDBDatabase> => {
       const db = (event.target as IDBOpenDBRequest).result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains(DATA_STORE)) {
-        db.createObjectStore(DATA_STORE);
       }
     };
   });
@@ -90,30 +86,6 @@ export const getAllRecordingIds = async (): Promise<string[]> => {
     });
 }
 
-// --- App Data Persistence (Words, Progress) ---
-
-export const saveAppData = async (key: string, value: any): Promise<void> => {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction(DATA_STORE, 'readwrite');
-        const store = transaction.objectStore(DATA_STORE);
-        const request = store.put(value, key);
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error);
-    });
-};
-
-export const getAppData = async <T>(key: string): Promise<T | null> => {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction(DATA_STORE, 'readonly');
-        const store = transaction.objectStore(DATA_STORE);
-        const request = store.get(key);
-        request.onsuccess = () => resolve(request.result || null);
-        request.onerror = () => reject(request.error);
-    });
-};
-
 // --- Import / Export Helpers ---
 
 export const blobToBase64 = (blob: Blob): Promise<string> => {
@@ -129,6 +101,104 @@ export const base64ToBlob = async (base64: string): Promise<Blob> => {
   const res = await fetch(base64);
   return res.blob();
 };
+
+export const exportRecordingsToJSON = async (): Promise<string> => {
+    const ids = await getAllRecordingIds();
+    const exportData: Record<string, string> = {}; 
+
+    for (const id of ids) {
+        const blob = await getRecording(id);
+        if (blob) {
+            exportData[id] = await blobToBase64(blob);
+        }
+    }
+
+    return JSON.stringify({
+        version: 1,
+        timestamp: Date.now(),
+        description: "Läsresan Sound Backup",
+        recordings: exportData
+    }, null, 2);
+};
+
+export const importRecordingsFromJSON = async (jsonString: string): Promise<number> => {
+    try {
+        const data = JSON.parse(jsonString);
+        if (!data.recordings) throw new Error("Invalid file format: missing recordings");
+        
+        const recordings = data.recordings as Record<string, string>;
+        let count = 0;
+        
+        for (const [id, dataUrl] of Object.entries(recordings)) {
+            const blob = await base64ToBlob(dataUrl);
+            await saveRecording(id, blob);
+            count++;
+        }
+        return count;
+    } catch (e) {
+        console.error("Import failed", e);
+        throw e;
+    }
+}
+
+// --- WAV ENCODING (For Trimming/Saving) ---
+
+export const encodeWAV = (samples: Float32Array, sampleRate: number): Blob => {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+
+  const writeString = (view: DataView, offset: number, string: string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  };
+
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeString(view, 8, 'WAVE');
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(view, 36, 'data');
+  view.setUint32(40, samples.length * 2, true);
+
+  const floatTo16BitPCM = (output: DataView, offset: number, input: Float32Array) => {
+    for (let i = 0; i < input.length; i++, offset += 2) {
+      const s = Math.max(-1, Math.min(1, input[i]));
+      output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    }
+  };
+
+  floatTo16BitPCM(view, 44, samples);
+  return new Blob([view], { type: 'audio/wav' });
+};
+
+// --- CONFIG STORAGE (Visemes) ---
+const CONFIG_KEY = 'lasresan_viseme_config';
+
+export const saveVisemeConfig = (config: Record<string, number>) => {
+    if (typeof window !== 'undefined') {
+        localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+    }
+};
+
+export const getVisemeConfig = (): Record<string, number> => {
+    if (typeof window !== 'undefined') {
+        const raw = localStorage.getItem(CONFIG_KEY);
+        if (raw) {
+            try { return JSON.parse(raw); } catch (e) {}
+        }
+    }
+    return {};
+};
+
+
+// --- FULL PROJECT BACKUP (Words + All Sounds + Config) ---
 
 export const exportFullBackup = async (words: AnalyzedWord[]): Promise<string> => {
     const allIds = await getAllRecordingIds();
@@ -173,57 +243,4 @@ export const importFullBackup = async (jsonString: string): Promise<AnalyzedWord
         console.error("Backup import failed", e);
         throw e;
     }
-};
-
-// --- CONFIG STORAGE (Visemes) ---
-const CONFIG_KEY = 'lasresan_viseme_config';
-
-export const saveVisemeConfig = (config: Record<string, number>) => {
-    if (typeof window !== 'undefined') {
-        localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
-    }
-};
-
-export const getVisemeConfig = (): Record<string, number> => {
-    if (typeof window !== 'undefined') {
-        const raw = localStorage.getItem(CONFIG_KEY);
-        if (raw) {
-            try { return JSON.parse(raw); } catch (e) {}
-        }
-    }
-    return {};
-};
-
-// Fix: Added encodeWAV utility function for exporting recorded audio as WAV blobs.
-export const encodeWAV = (samples: Float32Array, sampleRate: number): Blob => {
-  const buffer = new ArrayBuffer(44 + samples.length * 2);
-  const view = new DataView(buffer);
-
-  const writeString = (offset: number, string: string) => {
-    for (let i = 0; i < string.length; i++) {
-      view.setUint8(offset + i, string.charCodeAt(i));
-    }
-  };
-
-  writeString(0, 'RIFF');
-  view.setUint32(4, 36 + samples.length * 2, true);
-  writeString(8, 'WAVE');
-  writeString(12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true); // PCM
-  view.setUint16(22, 1, true); // Mono
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true); // Byte rate
-  view.setUint16(32, 2, true); // Block align
-  view.setUint16(34, 16, true); // Bits per sample
-  writeString(36, 'data');
-  view.setUint32(40, samples.length * 2, true);
-
-  let offset = 44;
-  for (let i = 0; i < samples.length; i++, offset += 2) {
-    const s = Math.max(-1, Math.min(1, samples[i]));
-    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-  }
-
-  return new Blob([buffer], { type: 'audio/wav' });
 };

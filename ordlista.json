@@ -1,0 +1,870 @@
+[
+  {
+    "id": "init-1",
+    "text": "katt",
+    "emoji": "🐈",
+    "letters": [
+      {
+        "char": "k",
+        "originalIndex": 0,
+        "soundCategory": "consonant",
+        "soundId": "c7",
+        "isSilent": false,
+        "influencers": [],
+        "pronunciationRule": "Hårt K före hård vokal"
+      },
+      {
+        "char": "a",
+        "originalIndex": 1,
+        "soundCategory": "vowel",
+        "soundId": "v_a_short",
+        "isSilent": false,
+        "influencers": [],
+        "pronunciationRule": "Kort A före dubbelkonsonant"
+      },
+      {
+        "char": "tt",
+        "originalIndex": 2,
+        "soundCategory": "consonant",
+        "soundId": "c15",
+        "isSilent": false,
+        "influencers": [],
+        "pronunciationRule": "Dubbelteckning låter som ett ljud"
+      }
+    ],
+    "customRecordingId": "init-1"
+  },
+  {
+    "id": "init-2",
+    "text": "sju",
+    "emoji": "7️⃣",
+    "letters": [
+      {
+        "char": "sj",
+        "originalIndex": 0,
+        "soundCategory": "digraph",
+        "soundId": "sp1",
+        "isSilent": false,
+        "influencers": [],
+        "pronunciationRule": "SJ bildar ett sje-ljud"
+      },
+      {
+        "char": "u",
+        "originalIndex": 2,
+        "soundCategory": "vowel",
+        "soundId": "v_u_long",
+        "isSilent": false,
+        "influencers": [],
+        "pronunciationRule": ""
+      }
+    ],
+    "customRecordingId": "init-2"
+  },
+  {
+    "id": "init-3",
+    "text": "apa",
+    "emoji": "🐵",
+    "letters": [
+      {
+        "char": "a",
+        "originalIndex": 0,
+        "soundCategory": "vowel",
+        "soundId": "v_a_long",
+        "isSilent": false,
+        "influencers": [],
+        "pronunciationRule": "Långt A i början"
+      },
+      {
+        "char": "p",
+        "originalIndex": 1,
+        "soundCategory": "consonant",
+        "soundId": "c11",
+        "isSilent": false,
+        "influencers": []
+      },
+      {
+        "char": "a",
+        "originalIndex": 2,
+        "soundCategory": "vowel",
+        "soundId": "v_a_short",
+        "isSilent": false,
+        "influencers": [],
+        "pronunciationRule": "Kort A i slutet"
+      }
+    ],
+    "customRecordingId": "init-3"
+  },
+  {
+    "id": "6bbe2d34-8acc-4ca6-a1ac-008f58d30e20",
+    "text": "Bil",
+    "emoji": "🚗",
+    "letters": [
+      {
+        "char": "b",
+        "soundCategory": "consonant",
+        "soundId": "c1",
+        "pronunciationRule": "",
+        "originalIndex": 0,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "i",
+        "soundCategory": "vowel",
+        "soundId": "v_i_long",
+        "pronunciationRule": "",
+        "originalIndex": 1,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "l",
+        "soundCategory": "consonant",
+        "soundId": "c8",
+        "pronunciationRule": "",
+        "originalIndex": 2,
+        "influencers": [],
+        "isSilent": false
+      }
+    ],
+    "customRecordingId": "6bbe2d34-8acc-4ca6-a1ac-008f58d30e20"
+  },
+  {
+    "id": "3c502bcf-50c9-4a0d-bd0e-158cf9cdb57e",
+    "text": "Sol",
+    "emoji": "☀️",
+    "letters": [
+      {
+        "char": "s",
+        "soundCategory": "consonant",
+        "soundId": "c14",
+        "pronunciationRule": "",
+        "originalIndex": 0,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "o",
+        "soundCategory": "vowel",
+        "soundId": "v_o_long",
+        "pronunciationRule": "",
+        "originalIndex": 1,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "l",
+        "soundCategory": "consonant",
+        "soundId": "c8",
+        "pronunciationRule": "",
+        "originalIndex": 2,
+        "influencers": [],
+        "isSilent": false
+      }
+    ],
+    "customRecordingId": "3c502bcf-50c9-4a0d-bd0e-158cf9cdb57e"
+  },
+  {
+    "id": "21cef2b2-e43f-4246-a44c-43348f7aa63b",
+    "text": "Hus",
+    "emoji": "🏠",
+    "letters": [
+      {
+        "char": "h",
+        "soundCategory": "consonant",
+        "soundId": "c5",
+        "pronunciationRule": "",
+        "originalIndex": 0,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "u",
+        "soundCategory": "vowel",
+        "soundId": "v_u_long",
+        "pronunciationRule": "",
+        "originalIndex": 1,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "s",
+        "soundCategory": "consonant",
+        "soundId": "c14",
+        "pronunciationRule": "",
+        "originalIndex": 2,
+        "influencers": [],
+        "isSilent": false
+      }
+    ],
+    "customRecordingId": "21cef2b2-e43f-4246-a44c-43348f7aa63b"
+  },
+  {
+    "id": "050d2b02-cecd-444c-90a2-c94de5dc0e36",
+    "text": "En boll",
+    "emoji": "⚽",
+    "letters": [
+      {
+        "char": "e",
+        "soundCategory": "vowel",
+        "soundId": "v_e_short",
+        "pronunciationRule": "",
+        "originalIndex": 0,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "n",
+        "soundCategory": "consonant",
+        "soundId": "c10",
+        "pronunciationRule": "",
+        "originalIndex": 1,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": " ",
+        "soundCategory": "separator",
+        "soundId": "separator",
+        "pronunciationRule": "",
+        "originalIndex": 2,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "b",
+        "soundCategory": "consonant",
+        "soundId": "c1",
+        "pronunciationRule": "",
+        "originalIndex": 3,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "o",
+        "soundCategory": "vowel",
+        "soundId": "v_o_short",
+        "pronunciationRule": "",
+        "originalIndex": 4,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "ll",
+        "soundCategory": "consonant",
+        "soundId": "c8",
+        "pronunciationRule": "Dubbelteckning ger kort vokal och ett 'l'-ljud.",
+        "originalIndex": 5,
+        "influencers": [],
+        "isSilent": false
+      }
+    ],
+    "customRecordingId": "050d2b02-cecd-444c-90a2-c94de5dc0e36"
+  },
+  {
+    "id": "c182a9b1-5b56-4177-a7c3-985e55a1d66f",
+    "text": "Min mun",
+    "emoji": "👄",
+    "letters": [
+      {
+        "char": "m",
+        "soundCategory": "consonant",
+        "soundId": "c9",
+        "pronunciationRule": "",
+        "originalIndex": 0,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "i",
+        "soundCategory": "vowel",
+        "soundId": "v_i_short",
+        "pronunciationRule": "",
+        "originalIndex": 1,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "n",
+        "soundCategory": "consonant",
+        "soundId": "c10",
+        "pronunciationRule": "",
+        "originalIndex": 2,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": " ",
+        "soundCategory": "separator",
+        "soundId": "separator",
+        "pronunciationRule": "",
+        "originalIndex": 3,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "m",
+        "soundCategory": "consonant",
+        "soundId": "c9",
+        "pronunciationRule": "",
+        "originalIndex": 4,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "u",
+        "soundCategory": "vowel",
+        "soundId": "v_u_short",
+        "pronunciationRule": "",
+        "originalIndex": 5,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "n",
+        "soundCategory": "consonant",
+        "soundId": "c10",
+        "pronunciationRule": "",
+        "originalIndex": 6,
+        "influencers": [],
+        "isSilent": false
+      }
+    ],
+    "customRecordingId": "c182a9b1-5b56-4177-a7c3-985e55a1d66f"
+  },
+  {
+    "id": "67baa078-5a2a-40ec-8a57-a47c85548978",
+    "text": "bamse",
+    "letters": [
+      {
+        "char": "b",
+        "originalIndex": 0,
+        "soundCategory": "consonant",
+        "influencers": [],
+        "isSilent": false,
+        "soundId": "c1"
+      },
+      {
+        "char": "a",
+        "originalIndex": 1,
+        "soundCategory": "vowel",
+        "influencers": [],
+        "isSilent": false,
+        "soundId": "v_a_short",
+        "vowelDuration": "short"
+      },
+      {
+        "char": "m",
+        "originalIndex": 2,
+        "soundCategory": "consonant",
+        "influencers": [],
+        "isSilent": false,
+        "soundId": "c9"
+      },
+      {
+        "char": "s",
+        "originalIndex": 3,
+        "soundCategory": "consonant",
+        "influencers": [],
+        "isSilent": false,
+        "soundId": "c14"
+      },
+      {
+        "char": "e",
+        "originalIndex": 4,
+        "soundCategory": "vowel",
+        "influencers": [],
+        "isSilent": false,
+        "soundId": "v_e_short",
+        "vowelDuration": "long"
+      }
+    ],
+    "emoji": "🐻",
+    "customRecordingId": "67baa078-5a2a-40ec-8a57-a47c85548978"
+  },
+  {
+    "id": "cf498936-d3e3-46c1-b645-041656a59b88",
+    "text": "kött",
+    "letters": [
+      {
+        "char": "k",
+        "originalIndex": 0,
+        "soundCategory": "consonant",
+        "influencers": [],
+        "isSilent": false,
+        "soundId": "sp7"
+      },
+      {
+        "char": "ö",
+        "originalIndex": 1,
+        "soundCategory": "vowel",
+        "influencers": [],
+        "isSilent": false,
+        "soundId": "v_oe_short",
+        "vowelDuration": "short"
+      },
+      {
+        "char": "tt",
+        "originalIndex": 2,
+        "soundCategory": "consonant",
+        "influencers": [],
+        "isSilent": false,
+        "soundId": "c15",
+        "pronunciationRule": "Dubbelteckning"
+      }
+    ],
+    "emoji": "🥩",
+    "customRecordingId": "cf498936-d3e3-46c1-b645-041656a59b88"
+  },
+  {
+    "id": "22ffb435-d020-4ac7-915b-5f8acc530359",
+    "text": "Lampa",
+    "emoji": "💡",
+    "letters": [
+      {
+        "char": "L",
+        "soundCategory": "consonant",
+        "soundId": "c8",
+        "originalIndex": 0,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "a",
+        "soundCategory": "vowel",
+        "soundId": "v_a_short",
+        "originalIndex": 1,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "m",
+        "soundCategory": "consonant",
+        "soundId": "c9",
+        "originalIndex": 2,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "p",
+        "soundCategory": "consonant",
+        "soundId": "c11",
+        "originalIndex": 3,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "a",
+        "soundCategory": "vowel",
+        "soundId": "v_a_short",
+        "originalIndex": 4,
+        "influencers": [],
+        "isSilent": false
+      }
+    ],
+    "customRecordingId": "22ffb435-d020-4ac7-915b-5f8acc530359"
+  },
+  {
+    "id": "389a881b-7715-4080-ae7a-2978567a062c",
+    "text": "Fisk",
+    "emoji": "🐠",
+    "letters": [
+      {
+        "char": "F",
+        "soundCategory": "consonant",
+        "soundId": "c3",
+        "originalIndex": 0,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "i",
+        "soundCategory": "vowel",
+        "soundId": "v_i_short",
+        "originalIndex": 1,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "s",
+        "soundCategory": "consonant",
+        "soundId": "c14",
+        "pronunciationRule": "SK före mjuk vokal (e, i, y, ä, ö) eller i vissa ord uttalas som sje-ljud.",
+        "originalIndex": 2,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "k",
+        "soundCategory": "consonant",
+        "originalIndex": 3,
+        "influencers": [],
+        "isSilent": false,
+        "soundId": "c7"
+      }
+    ],
+    "customRecordingId": "389a881b-7715-4080-ae7a-2978567a062c"
+  },
+  {
+    "id": "2b4d6e45-3920-4ba2-8e85-4c95532a68c9",
+    "text": "Äta",
+    "emoji": "🍽️",
+    "letters": [
+      {
+        "char": "Ä",
+        "soundCategory": "vowel",
+        "soundId": "v_ae_long",
+        "originalIndex": 0,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "t",
+        "soundCategory": "consonant",
+        "soundId": "c15",
+        "originalIndex": 1,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "a",
+        "soundCategory": "vowel",
+        "soundId": "v_a_short",
+        "originalIndex": 2,
+        "influencers": [],
+        "isSilent": false
+      }
+    ],
+    "customRecordingId": "2b4d6e45-3920-4ba2-8e85-4c95532a68c9"
+  },
+  {
+    "id": "28b9592b-e816-469f-b99f-6b548a96345b",
+    "text": "En ros",
+    "emoji": "🌹",
+    "letters": [
+      {
+        "char": "E",
+        "soundCategory": "vowel",
+        "soundId": "v_e_short",
+        "originalIndex": 0,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "n",
+        "soundCategory": "consonant",
+        "soundId": "c10",
+        "originalIndex": 1,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": " ",
+        "soundCategory": "separator",
+        "soundId": "separator",
+        "originalIndex": 2,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "R",
+        "soundCategory": "consonant",
+        "soundId": "c13",
+        "originalIndex": 3,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "o",
+        "soundCategory": "vowel",
+        "soundId": "v_o_long",
+        "originalIndex": 4,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "s",
+        "soundCategory": "consonant",
+        "soundId": "c14",
+        "originalIndex": 5,
+        "influencers": [],
+        "isSilent": false
+      }
+    ],
+    "customRecordingId": "28b9592b-e816-469f-b99f-6b548a96345b"
+  },
+  {
+    "id": "61479d41-2906-4c2f-9bc6-5b5e9f8a7b36",
+    "text": "Cykel",
+    "emoji": "🚲",
+    "letters": [
+      {
+        "char": "C",
+        "soundCategory": "consonant",
+        "soundId": "sp8",
+        "pronunciationRule": "C följt av mjuk vokal (e, i, y, ä, ö) uttalas som S-ljud.",
+        "originalIndex": 0,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "y",
+        "soundCategory": "vowel",
+        "soundId": "v_y_short",
+        "originalIndex": 1,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "k",
+        "soundCategory": "consonant",
+        "soundId": "c7",
+        "pronunciationRule": "K följt av mjuk vokal (e, i, y, ä, ö) uttalas som TJ-ljud.",
+        "originalIndex": 2,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "e",
+        "soundCategory": "vowel",
+        "soundId": "v_e_short",
+        "originalIndex": 3,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "l",
+        "soundCategory": "consonant",
+        "soundId": "c8",
+        "originalIndex": 4,
+        "influencers": [],
+        "isSilent": false
+      }
+    ],
+    "customRecordingId": "61479d41-2906-4c2f-9bc6-5b5e9f8a7b36"
+  },
+  {
+    "id": "e6c37c1e-cf97-49ab-a98d-bb38169ce616",
+    "text": "Mamma",
+    "emoji": "👩‍👧",
+    "letters": [
+      {
+        "char": "M",
+        "soundCategory": "consonant",
+        "soundId": "c9",
+        "originalIndex": 0,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "a",
+        "soundCategory": "vowel",
+        "soundId": "v_a_short",
+        "originalIndex": 1,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "mm",
+        "soundCategory": "consonant",
+        "soundId": "c9",
+        "originalIndex": 2,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "a",
+        "soundCategory": "vowel",
+        "soundId": "v_a_short",
+        "originalIndex": 3,
+        "influencers": [],
+        "isSilent": false
+      }
+    ],
+    "customRecordingId": "e6c37c1e-cf97-49ab-a98d-bb38169ce616"
+  },
+  {
+    "id": "b02b2742-2a2a-4e14-af0b-40047fa98d4c",
+    "text": "Pappa",
+    "emoji": "👨‍👦",
+    "letters": [
+      {
+        "char": "P",
+        "soundCategory": "consonant",
+        "soundId": "c11",
+        "originalIndex": 0,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "a",
+        "soundCategory": "vowel",
+        "soundId": "v_a_short",
+        "originalIndex": 1,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "pp",
+        "soundCategory": "consonant",
+        "soundId": "c11",
+        "originalIndex": 2,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "a",
+        "soundCategory": "vowel",
+        "soundId": "v_a_short",
+        "originalIndex": 3,
+        "influencers": [],
+        "isSilent": false
+      }
+    ],
+    "customRecordingId": "b02b2742-2a2a-4e14-af0b-40047fa98d4c"
+  },
+  {
+    "id": "840c7884-58e4-4537-b950-00693f2723d7",
+    "text": "En hund",
+    "emoji": "🐶",
+    "letters": [
+      {
+        "char": "E",
+        "soundCategory": "vowel",
+        "soundId": "v_e_short",
+        "originalIndex": 0,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "n",
+        "soundCategory": "consonant",
+        "soundId": "c10",
+        "originalIndex": 1,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": " ",
+        "soundCategory": "separator",
+        "soundId": "",
+        "originalIndex": 2,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "h",
+        "soundCategory": "consonant",
+        "soundId": "c5",
+        "originalIndex": 3,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "u",
+        "soundCategory": "vowel",
+        "soundId": "v_u_short",
+        "originalIndex": 4,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "n",
+        "soundCategory": "consonant",
+        "soundId": "c10",
+        "originalIndex": 5,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "d",
+        "soundCategory": "consonant",
+        "soundId": "c2",
+        "originalIndex": 6,
+        "influencers": [],
+        "isSilent": false
+      }
+    ],
+    "customRecordingId": "840c7884-58e4-4537-b950-00693f2723d7"
+  },
+  {
+    "id": "4c51015a-5a8e-4d9a-b260-1f12a4d480ce",
+    "text": "Leka",
+    "emoji": "🤸‍♀️",
+    "letters": [
+      {
+        "char": "L",
+        "soundCategory": "consonant",
+        "soundId": "c8",
+        "originalIndex": 0,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "e",
+        "soundCategory": "vowel",
+        "soundId": "v_e_long",
+        "originalIndex": 1,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "k",
+        "soundCategory": "consonant",
+        "soundId": "c7",
+        "originalIndex": 2,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "a",
+        "soundCategory": "vowel",
+        "soundId": "v_a_short",
+        "originalIndex": 3,
+        "influencers": [],
+        "isSilent": false
+      }
+    ],
+    "customRecordingId": "4c51015a-5a8e-4d9a-b260-1f12a4d480ce"
+  },
+  {
+    "id": "c0202026-058e-4085-8b7f-8ab1aa227690",
+    "text": "Grön",
+    "emoji": "💚",
+    "letters": [
+      {
+        "char": "G",
+        "soundCategory": "consonant",
+        "soundId": "c4",
+        "originalIndex": 0,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "r",
+        "soundCategory": "consonant",
+        "soundId": "c13",
+        "originalIndex": 1,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "ö",
+        "soundCategory": "vowel",
+        "soundId": "v_oe_long",
+        "originalIndex": 2,
+        "influencers": [],
+        "isSilent": false
+      },
+      {
+        "char": "n",
+        "soundCategory": "consonant",
+        "soundId": "c10",
+        "originalIndex": 3,
+        "influencers": [],
+        "isSilent": false
+      }
+    ],
+    "customRecordingId": "c0202026-058e-4085-8b7f-8ab1aa227690"
+  }
+]
